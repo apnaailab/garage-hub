@@ -14,6 +14,7 @@ import { DamageDiagram } from '@/components/shared/DamageDiagram';
 import { SERVICES, CATEGORY_META, serviceById } from '@/lib/workflows';
 import { searchVehicles, findVehicle, type VehicleRecord } from '@/lib/vehicles';
 import { formatCurrency, formatDate, uid, nowISO, cn } from '@/lib/utils';
+import { uploadImage } from '@/lib/images';
 import type { ConsentLanguage, DamageMarker, DamageType, FuelLevel, InsuranceType, IntakeScenario, JobCard, JobPriority, PhotoTag, ServiceCategory, VehicleItemCondition } from '@/types';
 
 const schema = z.object({
@@ -78,11 +79,11 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
   const intCount = entryPhotos.filter((p) => p.tag === 'interior').length;
   const photosOk = extCount >= MIN_EXTERIOR && intCount >= MIN_INTERIOR;
 
-  const capturePhoto = (tag: PhotoTag) =>
-    setEntryPhotos((prev) => [
-      ...prev,
-      { url: `https://picsum.photos/seed/intake-${Date.now()}-${prev.length}/640/420`, tag },
-    ]);
+  const capturePhotos = async (tag: PhotoTag, files: FileList | null) => {
+    if (!files?.length) return;
+    const photos = await Promise.all(Array.from(files).map(async (file) => ({ url: await uploadImage(file, `intake-${tag}`), tag })));
+    setEntryPhotos((current) => [...current, ...photos]);
+  };
 
   const {
     register,
@@ -443,13 +444,13 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
                   label="Exterior"
                   count={extCount}
                   min={MIN_EXTERIOR}
-                  onAdd={() => capturePhoto('exterior')}
+                  onAdd={(files) => void capturePhotos('exterior', files)}
                 />
                 <PhotoCounter
                   label="Interior"
                   count={intCount}
                   min={MIN_INTERIOR}
-                  onAdd={() => capturePhoto('interior')}
+                  onAdd={(files) => void capturePhotos('interior', files)}
                 />
               </div>
             </CardContent>
@@ -605,7 +606,7 @@ function PhotoCounter({
   label: string;
   count: number;
   min: number;
-  onAdd: () => void;
+  onAdd: (files: FileList | null) => void;
 }) {
   const ok = count >= min;
   return (
@@ -621,9 +622,10 @@ function PhotoCounter({
           {count}/{min}
         </span>
       </div>
-      <Button type="button" variant="outline" size="sm" className="mt-2 w-full" onClick={onAdd}>
+      <label className="mt-2 flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-ink-200 text-xs font-semibold text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800">
         <Camera className="h-3.5 w-3.5" /> Add {label.toLowerCase()} photo
-      </Button>
+        <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(event) => { onAdd(event.target.files); event.target.value = ''; }} />
+      </label>
     </div>
   );
 }

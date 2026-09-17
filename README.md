@@ -23,8 +23,9 @@ npm run dev
 Open http://localhost:5173. The API runs on http://localhost:5080 and Swagger is
 available at http://localhost:5080/swagger.
 
-The login screen provides every seeded actor. Local demo accounts use the selected
-role email (for example `manager@garagehub.local`) and password `Demo@123`.
+Development mode can seed local actors for UI exploration. Production disables demo
+seeding and bootstraps one owner from environment variables; that owner creates real
+organization accounts from **Staff & Access**.
 
 Other scripts:
 
@@ -62,21 +63,17 @@ and Commercial & Value-Add — each with its own workflow.
 
 - Global instant search (vehicle no. / customer / job ID)
 - Light & dark mode (industrial-chic theme)
-- **Persistent API foundation** — authentication, API jobs, actor queues, inventory,
-  documents, attendance, notifications, reminders, invoices and audit data are stored
-  by EF Core. Existing prototype screens still use local persisted records while their
-  commands are migrated to the API; see the requirements status document.
+- **Organization-shared persistence** — authentication, portal state, actor queues,
+  inventory, documents, attendance, notifications, reminders, invoices and audit data
+  are stored by EF Core. Business data is no longer sourced from browser mock data.
 - Fully responsive / mobile-friendly: sidebar on desktop, bottom action bar on
   mobile, swipeable Kanban columns, bottom-sheet dialogs, and safe-area insets.
 - Print-ready job card (`@media print`) with letterhead, QR code & signatures
 - Interactive damage/scratch diagram
-- Photo gallery tagged by milestone (Entry / WIP / Final)
-- **End-to-End Workflow Studio** available to every actor: organization-scoped state is
-  stored by the API and synchronized across role sessions, while locally exercising documents,
-  multilingual signatures, pickup, check-up, estimate/parts approvals, departments,
-  invoices, payment/drop-off, CRM, inventory import, payroll and P&L with gated transitions.
-- Local sample RC, insurance, PUC and inventory-import files are available under
-  [docs/samples](docs/samples) for hackathon demonstrations.
+- Camera/gallery photo capture with milestone tags (Entry / WIP / Final). Images are
+  resized before authenticated upload and stored privately in Supabase in production.
+- Versioned portal snapshots synchronize organization data across role sessions and
+  reject stale writes with HTTP `409`.
 
 ## Structure
 
@@ -85,17 +82,15 @@ src/
   components/   ui primitives, layout, shared widgets
   portals/      manager · receptionist · mechanic · customer
   store/        Zustand store + selectors
-  data/         mock data (staff, customers, job cards)
   lib/          workflows, nav, roles, helpers
   types/        domain types
 ```
 
 ## Production configuration
 
-Set `ConnectionStrings__GarageHub` to a PostgreSQL connection string and set
-`Jwt__Key` to a long random secret. The included Compose file starts PostgreSQL for
-local integration testing. Replace the local messaging and file-storage adapters
-before production deployment.
+Set `ConnectionStrings__GarageHub` to the Supabase PostgreSQL Session pooler,
+`Jwt__Key` to a long random secret, and configure the private Supabase Storage adapter.
+See [docs/SUPABASE_DEPLOYMENT.md](docs/SUPABASE_DEPLOYMENT.md) for the complete runbook.
 
 Authenticated users receive their organization identity from the server. Workflow
 reads and versioned writes are scoped from that trusted JWT claim; clients poll for

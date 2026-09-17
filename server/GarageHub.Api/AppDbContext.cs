@@ -7,6 +7,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<Organization> Organizations => Set<Organization>();
     public DbSet<UserAccount> Users => Set<UserAccount>();
     public DbSet<WorkflowSnapshot> WorkflowSnapshots => Set<WorkflowSnapshot>();
+    public DbSet<PortalSnapshot> PortalSnapshots => Set<PortalSnapshot>();
     public DbSet<CustomerProfile> Customers => Set<CustomerProfile>();
     public DbSet<Vehicle> Vehicles => Set<Vehicle>();
     public DbSet<Job> Jobs => Set<Job>();
@@ -25,10 +26,23 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         modelBuilder.Entity<Organization>().HasIndex(x => x.Slug).IsUnique();
         modelBuilder.Entity<UserAccount>().HasIndex(x => x.Email).IsUnique();
         modelBuilder.Entity<WorkflowSnapshot>().HasIndex(x => x.OrganizationId).IsUnique();
-        modelBuilder.Entity<Vehicle>().HasIndex(x => x.RegistrationNumber).IsUnique();
-        modelBuilder.Entity<Job>().HasIndex(x => x.Number).IsUnique();
-        modelBuilder.Entity<InventoryPart>().HasIndex(x => x.Sku).IsUnique();
-        modelBuilder.Entity<Invoice>().HasIndex(x => x.Number).IsUnique();
+        modelBuilder.Entity<WorkflowSnapshot>().Property(x => x.Version).IsConcurrencyToken();
+        modelBuilder.Entity<PortalSnapshot>().HasIndex(x => x.OrganizationId).IsUnique();
+        modelBuilder.Entity<PortalSnapshot>().Property(x => x.Version).IsConcurrencyToken();
+        modelBuilder.Entity<Vehicle>().HasIndex(x => new { x.OrganizationId, x.RegistrationNumber }).IsUnique();
+        modelBuilder.Entity<Job>().HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique();
+        modelBuilder.Entity<InventoryPart>().HasIndex(x => new { x.OrganizationId, x.Sku }).IsUnique();
+        modelBuilder.Entity<Invoice>().HasIndex(x => new { x.OrganizationId, x.Number }).IsUnique();
+
+        var organizationOwnedTypes = new[]
+        {
+            typeof(UserAccount), typeof(WorkflowSnapshot), typeof(PortalSnapshot), typeof(CustomerProfile),
+            typeof(Vehicle), typeof(Job), typeof(WorkshopDocument), typeof(Consent), typeof(PickupAssignment),
+            typeof(InventoryPart), typeof(AttendanceEntry), typeof(Invoice), typeof(NotificationRecord),
+            typeof(Reminder), typeof(AuditEvent)
+        };
+        foreach (var entityType in organizationOwnedTypes)
+            modelBuilder.Entity(entityType).HasOne(typeof(Organization)).WithMany().HasForeignKey(nameof(UserAccount.OrganizationId)).OnDelete(DeleteBehavior.Restrict);
 
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {

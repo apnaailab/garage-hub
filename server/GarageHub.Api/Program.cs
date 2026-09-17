@@ -8,13 +8,20 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
-var connection = builder.Configuration.GetConnectionString("GarageHub") ?? "Data Source=garagehub.db";
+var connection = builder.Configuration.GetConnectionString("GarageHub");
+if (string.IsNullOrWhiteSpace(connection))
+{
+    if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("ConnectionStrings__GarageHub is required in production.");
+    connection = "Data Source=garagehub.db";
+}
 if (connection.Contains("Host=", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connection));
 else
     builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(connection));
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "garagehub-local-development-key-change-before-production-2026";
+if (!builder.Environment.IsDevelopment() && (jwtKey.Length < 32 || jwtKey.Contains("SET_A_", StringComparison.Ordinal)))
+    throw new InvalidOperationException("Jwt__Key must be a secret containing at least 32 characters.");
 var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(options =>
 {
@@ -33,9 +40,19 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IMessageDelivery, LocalMessageDelivery>();
 builder.Services.AddHostedService<ReminderWorker>();
+if (string.Equals(builder.Configuration["Storage:Provider"], "Supabase", StringComparison.OrdinalIgnoreCase))
+    builder.Services.AddHttpClient<IFileStorage, SupabaseFileStorage>();
+else
+    builder.Services.AddSingleton<IFileStorage, LocalFileStorage>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins("http://localhost:5173").AllowAnyHeader().AllowAnyMethod()));
+var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+if (allowedOrigins is null || allowedOrigins.Length == 0)
+{
+    if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("AllowedOrigins__0 is required in production.");
+    allowedOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
+}
+builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
 
 var app = builder.Build();
 app.UseSwagger();
@@ -46,7 +63,7 @@ app.UseAuthorization();
 app.UseStaticFiles();
 
 using (var scope = app.Services.CreateScope())
-    await SeedData.EnsureAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>());
+    await SeedData.EnsureAsync(scope.ServiceProvider.GetRequiredService<AppDbContext>(), builder.Configuration, app.Environment);
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", at = DateTimeOffset.UtcNow }));
 
@@ -120,23 +137,85 @@ api.MapPut("/workflow-state", async (WorkflowStateRequest request, ClaimsPrincip
     return Results.Ok(new WorkflowStateResponse(snapshot.Version, savedDocument.RootElement.Clone(), snapshot.UpdatedAt, snapshot.UpdatedById));
 });
 
+api.MapGet("/portal-state", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    var snapshot = await db.PortalSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == organizationId);
+    if (snapshot is null) return Results.NotFound();
+    using var document = JsonDocument.Parse(snapshot.DataJson);
+    return Results.Ok(new WorkflowStateResponse(snapshot.Version, document.RootElement.Clone(), snapshot.UpdatedAt, snapshot.UpdatedById));
+});
+
+api.MapPut("/portal-state", async (WorkflowStateRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    var userId = UserId(principal);
+    var dataJson = request.Data.GetRawText();
+    if (dataJson.Length > 10_000_000) return Results.BadRequest(new { error = "Portal state exceeds the 10 MB limit." });
+    var snapshot = await db.PortalSnapshots.SingleOrDefaultAsync(x => x.OrganizationId == organizationId);
+    if (snapshot is null)
+    {
+        if (request.BaseVersion != 0) return Results.Conflict(new { error = "Portal state was initialized by another session. Reload and retry." });
+        snapshot = new PortalSnapshot { OrganizationId = organizationId, Version = 1, DataJson = dataJson, UpdatedById = userId };
+        db.PortalSnapshots.Add(snapshot);
+    }
+    else
+    {
+        if (snapshot.Version != request.BaseVersion)
+        {
+            using var currentDocument = JsonDocument.Parse(snapshot.DataJson);
+            return Results.Conflict(new WorkflowStateResponse(snapshot.Version, currentDocument.RootElement.Clone(), snapshot.UpdatedAt, snapshot.UpdatedById));
+        }
+        snapshot.Version++;
+        snapshot.DataJson = dataJson;
+        snapshot.UpdatedById = userId;
+        snapshot.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+    Audit(db, principal, "synchronize", "portal-state", snapshot.Id, $"version={snapshot.Version}");
+    await db.SaveChangesAsync();
+    using var savedDocument = JsonDocument.Parse(snapshot.DataJson);
+    return Results.Ok(new WorkflowStateResponse(snapshot.Version, savedDocument.RootElement.Clone(), snapshot.UpdatedAt, snapshot.UpdatedById));
+});
+
 api.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var user = await db.Users.FindAsync(UserId(principal));
     return user is null ? Results.NotFound() : Results.Ok(ToView(user));
 });
 
-api.MapGet("/users", async (AppDbContext db) => Results.Ok(await db.Users
-    .Where(x => x.Active)
-    .OrderBy(x => x.Role).ThenBy(x => x.Name)
-    .Select(x => new UserView(x.Id, x.OrganizationId, x.Name, x.Email, x.Phone, x.Role, x.PhotoUrl, x.DrivingLicensePhotoUrl)).ToListAsync()))
+api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    return Results.Ok(await db.Users.Where(x => x.OrganizationId == organizationId && x.Active)
+        .OrderBy(x => x.Role).ThenBy(x => x.Name)
+        .Select(x => new UserView(x.Id, x.OrganizationId, x.Name, x.Email, x.Phone, x.Role, x.PhotoUrl, x.DrivingLicensePhotoUrl)).ToListAsync());
+})
     .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager));
+
+api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    if (!AppRoles.All.Contains(request.Role)) return Results.BadRequest(new { error = "Unknown role." });
+    if (request.Role == AppRoles.Owner && !principal.IsInRole(AppRoles.Owner)) return Results.Forbid();
+    if (request.Password.Length < 12) return Results.BadRequest(new { error = "Password must contain at least 12 characters." });
+    var email = request.Email.Trim().ToLowerInvariant();
+    if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
+    var user = new UserAccount
+    {
+        OrganizationId = OrganizationId(principal), Name = request.Name.Trim(), Email = email,
+        Phone = request.Phone.Trim(), Role = request.Role, PasswordHash = Passwords.Hash(request.Password)
+    };
+    db.Users.Add(user);
+    Audit(db, principal, "create", "user", user.Id, user.Role);
+    await db.SaveChangesAsync();
+    return Results.Created($"/api/users/{user.Id}", ToView(user));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager));
 
 api.MapGet("/dashboard", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
     var role = principal.FindFirstValue(ClaimTypes.Role)!;
-    var jobs = db.Jobs.AsQueryable();
+    var organizationId = OrganizationId(principal);
+    var jobs = db.Jobs.Where(x => x.OrganizationId == organizationId);
     if (role is AppRoles.Mechanic or AppRoles.HeadMechanic) jobs = jobs.Where(x => x.AssignedTechnicianId == userId);
     if (role == AppRoles.Driver)
     {
@@ -150,8 +229,8 @@ api.MapGet("/dashboard", async (ClaimsPrincipal principal, AppDbContext db) =>
     }
 
     var byStage = await jobs.GroupBy(x => x.Stage).Select(g => new { stage = g.Key, count = g.Count() }).ToListAsync();
-    var lowStock = await db.InventoryParts.CountAsync(x => x.Quantity <= x.LowStockThreshold);
-    var unread = await db.Notifications.CountAsync(x => x.RecipientId == userId && x.ReadAt == null);
+    var lowStock = await db.InventoryParts.CountAsync(x => x.OrganizationId == organizationId && x.Quantity <= x.LowStockThreshold);
+    var unread = await db.Notifications.CountAsync(x => x.OrganizationId == organizationId && x.RecipientId == userId && x.ReadAt == null);
     var activeReminders = await db.Reminders.Where(x => x.RecipientId == userId && !x.Completed).ToListAsync();
     var dueReminders = activeReminders.Count(x => x.DueAt <= DateTimeOffset.UtcNow.AddHours(24));
     var attendanceEvents = await db.Attendance.Where(x => x.UserId == userId).ToListAsync();
@@ -163,7 +242,8 @@ api.MapGet("/jobs", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
     var role = principal.FindFirstValue(ClaimTypes.Role)!;
-    var query = db.Jobs.AsNoTracking().AsQueryable();
+    var organizationId = OrganizationId(principal);
+    var query = db.Jobs.AsNoTracking().Where(x => x.OrganizationId == organizationId);
     if (role is AppRoles.Mechanic or AppRoles.HeadMechanic) query = query.Where(x => x.AssignedTechnicianId == userId);
     if (role == AppRoles.Customer)
     {
@@ -181,7 +261,12 @@ api.MapGet("/jobs", async (ClaimsPrincipal principal, AppDbContext db) =>
 
 api.MapPost("/jobs", async (Job job, ClaimsPrincipal principal, AppDbContext db) =>
 {
+    var organizationId = OrganizationId(principal);
+    if (!await db.Customers.AnyAsync(x => x.Id == job.CustomerId && x.OrganizationId == organizationId) ||
+        !await db.Vehicles.AnyAsync(x => x.Id == job.VehicleId && x.OrganizationId == organizationId))
+        return Results.BadRequest(new { error = "Customer and vehicle must belong to your organization." });
     job.Id = Guid.NewGuid();
+    job.OrganizationId = organizationId;
     job.CreatedAt = job.UpdatedAt = DateTimeOffset.UtcNow;
     db.Jobs.Add(job);
     Audit(db, principal, "create", "job", job.Id, job.Number);
@@ -193,7 +278,8 @@ api.MapPatch("/jobs/{id:guid}/stage", async (Guid id, JobStageRequest request, C
 {
     var allowedStages = new[] { "pending-for-pickup", "pending-from-technician", "pending-for-estimate", "pending-for-customer-approval", "pending-for-owner-approval", "pending-for-parts", "pending-from-accountant", "pending-for-payment", "pending-for-drop-off", "delivered" };
     if (!allowedStages.Contains(request.Stage)) return Results.BadRequest(new { error = "Unknown workflow stage" });
-    var job = await db.Jobs.FindAsync(id);
+    var organizationId = OrganizationId(principal);
+    var job = await db.Jobs.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (job is null) return Results.NotFound();
     job.Stage = request.Stage;
     job.UpdatedAt = DateTimeOffset.UtcNow;
@@ -204,7 +290,8 @@ api.MapPatch("/jobs/{id:guid}/stage", async (Guid id, JobStageRequest request, C
 
 api.MapPost("/jobs/{id:guid}/estimate-action", async (Guid id, EstimateActionRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var job = await db.Jobs.FindAsync(id);
+    var organizationId = OrganizationId(principal);
+    var job = await db.Jobs.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (job is null) return Results.NotFound();
     var role = principal.FindFirstValue(ClaimTypes.Role);
 
@@ -233,15 +320,28 @@ api.MapPost("/jobs/{id:guid}/estimate-action", async (Guid id, EstimateActionReq
     return Results.Ok(job);
 });
 
-api.MapGet("/customers", async (AppDbContext db) => Results.Ok(await db.Customers.AsNoTracking().OrderBy(x => x.Name).ToListAsync()))
+api.MapGet("/customers", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    return Results.Ok(await db.Customers.AsNoTracking().Where(x => x.OrganizationId == organizationId).OrderBy(x => x.Name).ToListAsync());
+})
     .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
-api.MapGet("/vehicles", async (AppDbContext db) => Results.Ok(await db.Vehicles.AsNoTracking().Where(x => x.Active).OrderBy(x => x.RegistrationNumber).ToListAsync()));
+api.MapGet("/vehicles", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    return Results.Ok(await db.Vehicles.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.Active).OrderBy(x => x.RegistrationNumber).ToListAsync());
+});
 
-api.MapGet("/inventory", async (AppDbContext db) => Results.Ok(await db.InventoryParts.AsNoTracking().OrderBy(x => x.Name).ToListAsync()))
+api.MapGet("/inventory", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    return Results.Ok(await db.InventoryParts.AsNoTracking().Where(x => x.OrganizationId == organizationId).OrderBy(x => x.Name).ToListAsync());
+})
     .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Mechanic, AppRoles.HeadMechanic));
 api.MapPost("/inventory", async (InventoryPart part, ClaimsPrincipal principal, AppDbContext db) =>
 {
     part.Id = Guid.NewGuid();
+    part.OrganizationId = OrganizationId(principal);
     db.InventoryParts.Add(part);
     Audit(db, principal, "create", "inventory-part", part.Id, part.Sku);
     await db.SaveChangesAsync();
@@ -250,7 +350,8 @@ api.MapPost("/inventory", async (InventoryPart part, ClaimsPrincipal principal, 
 
 api.MapPatch("/inventory/{id:guid}", async (Guid id, InventoryPart request, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var part = await db.InventoryParts.FindAsync(id);
+    var organizationId = OrganizationId(principal);
+    var part = await db.InventoryParts.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (part is null) return Results.NotFound();
     part.Name = request.Name;
     part.UnitCost = request.UnitCost;
@@ -267,7 +368,8 @@ api.MapPatch("/inventory/{id:guid}", async (Guid id, InventoryPart request, Clai
 api.MapGet("/pickups", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
-    var query = db.PickupAssignments.AsNoTracking().AsQueryable();
+    var organizationId = OrganizationId(principal);
+    var query = db.PickupAssignments.AsNoTracking().Where(x => x.OrganizationId == organizationId);
     if (principal.IsInRole(AppRoles.Driver)) query = query.Where(x => x.DriverId == userId);
     var result = await query.ToListAsync();
     return Results.Ok(result.OrderBy(x => x.ScheduledAt));
@@ -275,7 +377,12 @@ api.MapGet("/pickups", async (ClaimsPrincipal principal, AppDbContext db) =>
 
 api.MapPost("/pickups", async (PickupAssignment assignment, ClaimsPrincipal principal, AppDbContext db) =>
 {
+    var organizationId = OrganizationId(principal);
+    if (!await db.Jobs.AnyAsync(x => x.Id == assignment.JobId && x.OrganizationId == organizationId) ||
+        !await db.Users.AnyAsync(x => x.Id == assignment.DriverId && x.OrganizationId == organizationId && x.Role == AppRoles.Driver))
+        return Results.BadRequest(new { error = "Job and driver must belong to your organization." });
     assignment.Id = Guid.NewGuid();
+    assignment.OrganizationId = organizationId;
     assignment.CreatedAt = assignment.UpdatedAt = DateTimeOffset.UtcNow;
     db.PickupAssignments.Add(assignment);
     Audit(db, principal, "assign", "pickup", assignment.Id, assignment.DriverId.ToString());
@@ -287,7 +394,8 @@ api.MapPatch("/pickups/{id:guid}/status", async (Guid id, JobStageRequest reques
 {
     var valid = new[] { "scheduled", "en-route", "at-customer", "picked-up", "at-workshop", "drop-en-route", "delivered", "cash-received" };
     if (!valid.Contains(request.Stage)) return Results.BadRequest(new { error = "Invalid pickup status" });
-    var pickup = await db.PickupAssignments.FindAsync(id);
+    var organizationId = OrganizationId(principal);
+    var pickup = await db.PickupAssignments.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (pickup is null) return Results.NotFound();
     if (principal.IsInRole(AppRoles.Driver) && pickup.DriverId != UserId(principal)) return Results.Forbid();
     pickup.Status = request.Stage;
@@ -302,7 +410,7 @@ api.MapPost("/attendance", async (AttendanceRequest request, ClaimsPrincipal pri
 {
     var valid = new[] { "login", "lunch-out", "lunch-in", "logout" };
     if (!valid.Contains(request.EventType)) return Results.BadRequest(new { error = "Invalid attendance event" });
-    var entry = new AttendanceEntry { UserId = UserId(principal), EventType = request.EventType };
+    var entry = new AttendanceEntry { OrganizationId = OrganizationId(principal), UserId = UserId(principal), EventType = request.EventType };
     db.Attendance.Add(entry);
     await db.SaveChangesAsync();
     return Results.Ok(entry);
@@ -310,20 +418,25 @@ api.MapPost("/attendance", async (AttendanceRequest request, ClaimsPrincipal pri
 api.MapGet("/attendance/mine", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
-    var entries = await db.Attendance.Where(x => x.UserId == userId).ToListAsync();
+    var organizationId = OrganizationId(principal);
+    var entries = await db.Attendance.Where(x => x.OrganizationId == organizationId && x.UserId == userId).ToListAsync();
     return Results.Ok(entries.OrderByDescending(x => x.At).Take(100));
 });
 
 api.MapGet("/notifications", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
-    var notifications = await db.Notifications.Where(x => x.RecipientId == userId).ToListAsync();
+    var organizationId = OrganizationId(principal);
+    var notifications = await db.Notifications.Where(x => x.OrganizationId == organizationId && x.RecipientId == userId).ToListAsync();
     return Results.Ok(notifications.OrderByDescending(x => x.DueAt).Take(100));
 });
 api.MapPost("/notifications", async (NotificationRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
+    var organizationId = OrganizationId(principal);
+    if (!await db.Users.AnyAsync(x => x.Id == request.RecipientId && x.OrganizationId == organizationId)) return Results.BadRequest(new { error = "Recipient does not belong to your organization." });
     var notification = new NotificationRecord
     {
+        OrganizationId = organizationId,
         JobId = request.JobId,
         RecipientId = request.RecipientId,
         Channel = request.Channel,
@@ -339,13 +452,17 @@ api.MapPost("/notifications", async (NotificationRequest request, ClaimsPrincipa
 api.MapGet("/reminders", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var userId = UserId(principal);
-    var reminders = await db.Reminders.Where(x => x.RecipientId == userId && !x.Completed).ToListAsync();
+    var organizationId = OrganizationId(principal);
+    var reminders = await db.Reminders.Where(x => x.OrganizationId == organizationId && x.RecipientId == userId && !x.Completed).ToListAsync();
     return Results.Ok(reminders.OrderBy(x => x.DueAt));
 });
 
 api.MapPost("/reminders", async (Reminder reminder, ClaimsPrincipal principal, AppDbContext db) =>
 {
+    var organizationId = OrganizationId(principal);
+    if (!await db.Users.AnyAsync(x => x.Id == reminder.RecipientId && x.OrganizationId == organizationId)) return Results.BadRequest(new { error = "Recipient does not belong to your organization." });
     reminder.Id = Guid.NewGuid();
+    reminder.OrganizationId = organizationId;
     reminder.CreatedAt = reminder.UpdatedAt = DateTimeOffset.UtcNow;
     db.Reminders.Add(reminder);
     Audit(db, principal, "schedule", "reminder", reminder.Id, reminder.Kind);
@@ -355,7 +472,8 @@ api.MapPost("/reminders", async (Reminder reminder, ClaimsPrincipal principal, A
 
 api.MapPatch("/reminders/{id:guid}/complete", async (Guid id, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var reminder = await db.Reminders.FindAsync(id);
+    var organizationId = OrganizationId(principal);
+    var reminder = await db.Reminders.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (reminder is null) return Results.NotFound();
     if (reminder.RecipientId != UserId(principal) && !principal.IsInRole(AppRoles.Owner) && !principal.IsInRole(AppRoles.Manager)) return Results.Forbid();
     reminder.Completed = true;
@@ -366,7 +484,8 @@ api.MapPatch("/reminders/{id:guid}/complete", async (Guid id, ClaimsPrincipal pr
 
 api.MapGet("/invoices", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var query = db.Invoices.AsNoTracking().AsQueryable();
+    var organizationId = OrganizationId(principal);
+    var query = db.Invoices.AsNoTracking().Where(x => x.OrganizationId == organizationId);
     if (principal.IsInRole(AppRoles.Customer))
     {
         var userId = UserId(principal);
@@ -381,7 +500,10 @@ api.MapGet("/invoices", async (ClaimsPrincipal principal, AppDbContext db) =>
 api.MapPost("/invoices", async (Invoice invoice, ClaimsPrincipal principal, AppDbContext db) =>
 {
     if (invoice.Type is not ("gst" or "general")) return Results.BadRequest(new { error = "Invoice type must be gst or general" });
+    var organizationId = OrganizationId(principal);
+    if (!await db.Jobs.AnyAsync(x => x.Id == invoice.JobId && x.OrganizationId == organizationId)) return Results.BadRequest(new { error = "Job does not belong to your organization." });
     invoice.Id = Guid.NewGuid();
+    invoice.OrganizationId = organizationId;
     invoice.CreatedAt = invoice.UpdatedAt = DateTimeOffset.UtcNow;
     db.Invoices.Add(invoice);
     Audit(db, principal, "create", "invoice", invoice.Id, invoice.Number);
@@ -392,7 +514,8 @@ api.MapPost("/invoices", async (Invoice invoice, ClaimsPrincipal principal, AppD
 api.MapGet("/consents/{jobId:guid}", async (Guid jobId, ClaimsPrincipal principal, AppDbContext db) =>
 {
     if (!await CanAccessJob(jobId, principal, db)) return Results.Forbid();
-    var consents = await db.Consents.AsNoTracking().Where(x => x.JobId == jobId).ToListAsync();
+    var organizationId = OrganizationId(principal);
+    var consents = await db.Consents.AsNoTracking().Where(x => x.OrganizationId == organizationId && x.JobId == jobId).ToListAsync();
     return Results.Ok(consents.OrderBy(x => x.SignedAt));
 });
 
@@ -400,6 +523,7 @@ api.MapPost("/consents", async (Consent consent, ClaimsPrincipal principal, AppD
 {
     if (!await CanAccessJob(consent.JobId, principal, db)) return Results.Forbid();
     consent.Id = Guid.NewGuid();
+    consent.OrganizationId = OrganizationId(principal);
     consent.SignedAt = consent.CreatedAt = consent.UpdatedAt = DateTimeOffset.UtcNow;
     db.Consents.Add(consent);
     Audit(db, principal, "sign", "consent", consent.Id, consent.Kind);
@@ -409,7 +533,8 @@ api.MapPost("/consents", async (Consent consent, ClaimsPrincipal principal, AppD
 
 api.MapGet("/documents", async (Guid? jobId, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var query = db.Documents.AsNoTracking().AsQueryable();
+    var organizationId = OrganizationId(principal);
+    var query = db.Documents.AsNoTracking().Where(x => x.OrganizationId == organizationId);
     if (jobId.HasValue) query = query.Where(x => x.JobId == jobId);
     if (principal.IsInRole(AppRoles.Customer))
     {
@@ -421,42 +546,62 @@ api.MapGet("/documents", async (Guid? jobId, ClaimsPrincipal principal, AppDbCon
     return Results.Ok(await query.Take(200).ToListAsync());
 });
 
-api.MapPost("/documents", async (HttpRequest request, ClaimsPrincipal principal, AppDbContext db, IWebHostEnvironment env) =>
+api.MapGet("/documents/{id:guid}/download", async (Guid id, ClaimsPrincipal principal, AppDbContext db, IFileStorage storage, CancellationToken cancellationToken) =>
+{
+    var organizationId = OrganizationId(principal);
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId, cancellationToken);
+    if (document is null) return Results.NotFound();
+    if (principal.IsInRole(AppRoles.Customer) && (!document.CustomerVisible || !await CanAccessDocument(document, principal, db))) return Results.Forbid();
+    return Results.Ok(new { url = await storage.GetDownloadUrlAsync(document.StorageKey, cancellationToken), expiresInSeconds = 3600 });
+});
+
+api.MapPost("/documents", async (HttpRequest request, ClaimsPrincipal principal, AppDbContext db, IFileStorage storage, CancellationToken cancellationToken) =>
 {
     if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart/form-data required" });
-    var form = await request.ReadFormAsync();
+    var form = await request.ReadFormAsync(cancellationToken);
     var file = form.Files.GetFile("file");
     if (file is null || file.Length == 0) return Results.BadRequest(new { error = "file is required" });
     if (file.Length > 10 * 1024 * 1024) return Results.BadRequest(new { error = "Maximum file size is 10 MB" });
     var allowed = new[] { ".pdf", ".jpg", ".jpeg", ".png", ".webp" };
     var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
     if (!allowed.Contains(extension)) return Results.BadRequest(new { error = "Unsupported file type" });
-    var uploadRoot = Path.Combine(env.ContentRootPath, "wwwroot", "uploads");
-    Directory.CreateDirectory(uploadRoot);
-    var storageKey = $"{Guid.NewGuid():N}{extension}";
-    await using (var stream = File.Create(Path.Combine(uploadRoot, storageKey))) await file.CopyToAsync(stream);
+    var organizationId = OrganizationId(principal);
+    var jobId = Guid.TryParse(form["jobId"], out var parsedJobId) ? parsedJobId : (Guid?)null;
+    var vehicleId = Guid.TryParse(form["vehicleId"], out var parsedVehicleId) ? parsedVehicleId : (Guid?)null;
+    var customerId = Guid.TryParse(form["customerId"], out var parsedCustomerId) ? parsedCustomerId : (Guid?)null;
+    if (jobId.HasValue && !await db.Jobs.AnyAsync(x => x.Id == jobId && x.OrganizationId == organizationId, cancellationToken) ||
+        vehicleId.HasValue && !await db.Vehicles.AnyAsync(x => x.Id == vehicleId && x.OrganizationId == organizationId, cancellationToken) ||
+        customerId.HasValue && !await db.Customers.AnyAsync(x => x.Id == customerId && x.OrganizationId == organizationId, cancellationToken))
+        return Results.BadRequest(new { error = "Document references must belong to your organization." });
+    var objectName = $"{organizationId:N}/{Guid.NewGuid():N}{extension}";
+    await using var stream = file.OpenReadStream();
+    var storageKey = await storage.UploadAsync(stream, objectName, string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType, cancellationToken);
     var document = new WorkshopDocument
     {
+        OrganizationId = organizationId,
         Type = form["type"].ToString(),
         FileName = Path.GetFileName(file.FileName),
-        StorageKey = $"uploads/{storageKey}",
+        StorageKey = storageKey,
         CustomerVisible = bool.TryParse(form["customerVisible"], out var visible) && visible,
         UploadedById = UserId(principal),
-        JobId = Guid.TryParse(form["jobId"], out var jobId) ? jobId : null,
-        VehicleId = Guid.TryParse(form["vehicleId"], out var vehicleId) ? vehicleId : null,
-        CustomerId = Guid.TryParse(form["customerId"], out var customerId) ? customerId : null
+        JobId = jobId,
+        VehicleId = vehicleId,
+        CustomerId = customerId
     };
     db.Documents.Add(document);
     await db.SaveChangesAsync();
     return Results.Created($"/api/documents/{document.Id}", document);
 }).DisableAntiforgery();
 
-api.MapGet("/audit", async (AppDbContext db) =>
+api.MapGet("/audit", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
-    var events = await db.AuditEvents.AsNoTracking().ToListAsync();
+    var organizationId = OrganizationId(principal);
+    var events = await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == organizationId).ToListAsync();
     return Results.Ok(events.OrderByDescending(x => x.CreatedAt).Take(500));
 })
     .RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
+
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
@@ -465,13 +610,22 @@ static Guid OrganizationId(ClaimsPrincipal principal) => Guid.Parse(principal.Fi
 static UserView ToView(UserAccount user) => new(user.Id, user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.PhotoUrl, user.DrivingLicensePhotoUrl);
 static async Task<bool> CanAccessJob(Guid jobId, ClaimsPrincipal principal, AppDbContext db)
 {
-    if (!principal.IsInRole(AppRoles.Customer)) return true;
+    var organizationId = OrganizationId(principal);
+    if (!principal.IsInRole(AppRoles.Customer)) return await db.Jobs.AnyAsync(x => x.Id == jobId && x.OrganizationId == organizationId);
     var userId = UserId(principal);
-    return await db.Jobs.AnyAsync(job => job.Id == jobId && db.Customers.Any(customer => customer.Id == job.CustomerId && customer.UserId == userId));
+    return await db.Jobs.AnyAsync(job => job.Id == jobId && job.OrganizationId == organizationId && db.Customers.Any(customer => customer.Id == job.CustomerId && customer.OrganizationId == organizationId && customer.UserId == userId));
+}
+static async Task<bool> CanAccessDocument(WorkshopDocument document, ClaimsPrincipal principal, AppDbContext db)
+{
+    var organizationId = OrganizationId(principal);
+    var userId = UserId(principal);
+    var customerIds = db.Customers.Where(x => x.OrganizationId == organizationId && x.UserId == userId).Select(x => x.Id);
+    if (document.CustomerId.HasValue && await customerIds.ContainsAsync(document.CustomerId.Value)) return true;
+    return document.JobId.HasValue && await db.Jobs.AnyAsync(x => x.Id == document.JobId.Value && x.OrganizationId == organizationId && customerIds.Contains(x.CustomerId));
 }
 static void Audit(AppDbContext db, ClaimsPrincipal principal, string action, string entityType, Guid entityId, string detail) =>
     db.AuditEvents.Add(new AuditEvent
     {
-        ActorId = UserId(principal), Action = action, EntityType = entityType, EntityId = entityId.ToString(),
+        OrganizationId = OrganizationId(principal), ActorId = UserId(principal), Action = action, EntityType = entityType, EntityId = entityId.ToString(),
         DetailsJson = JsonSerializer.Serialize(new { detail })
     });

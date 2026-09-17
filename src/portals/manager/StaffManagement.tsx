@@ -1,19 +1,20 @@
-import { useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import {
   Award,
   Briefcase,
   CheckCircle2,
   TrendingUp,
-  ShieldCheck,
   Car,
-  RefreshCw,
   IndianRupee,
   Clock,
   ChevronRight,
+  UserPlus,
 } from 'lucide-react';
 import { useStore, customerById, staffById } from '@/store/useStore';
 import { PageHeader } from '@/components/layout/AppShell';
 import { Card } from '@/components/ui/Card';
+import { Button } from '@/components/ui/Button';
+import { Input, Label, Select } from '@/components/ui/Input';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
@@ -22,6 +23,9 @@ import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
 import { serviceById } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
+import { usersApi, type AuthUser, type CreateUserInput } from '@/lib/api';
+import { useAuthStore } from '@/store/useAuthStore';
+import type { StaffRole } from '@/types';
 
 const ROLE_TONE = {
   mechanic: 'blue',
@@ -30,27 +34,55 @@ const ROLE_TONE = {
   electrician: 'amber',
 } as const;
 
-// Mock lead pipeline for the "Reports" section.
-const LEADS = [
-  { id: 'ld-1', type: 'Insurance Renewal', customer: 'Priya Sharma', value: 15000, icon: ShieldCheck },
-  { id: 'ld-2', type: 'Used Car Sale', customer: 'Walk-in · Swift 2018', value: 480000, icon: Car },
-  { id: 'ld-3', type: 'Insurance Renewal', customer: 'Karan Malhotra', value: 22000, icon: ShieldCheck },
-  { id: 'ld-4', type: 'Accessories Upsell', customer: 'Arjun Mehta', value: 8500, icon: RefreshCw },
-];
+const ACCOUNT_ROLES = [
+  ['owner', 'Owner'], ['manager', 'Workshop Manager'], ['receptionist', 'Receptionist'],
+  ['driver', 'Driver'], ['mechanic', 'Technician'], ['head-mechanic', 'Head Mechanic'],
+  ['accountant', 'Accountant'], ['washing', 'Washing Department'],
+  ['wheel-alignment', 'WA/WB Specialist'], ['crm', 'CRM Executive'], ['customer', 'Customer'],
+] as const;
+
+const STAFF_ROLE_BY_ACCOUNT: Partial<Record<string, StaffRole>> = {
+  mechanic: 'mechanic',
+  'head-mechanic': 'mechanic',
+  washing: 'detailer',
+  'wheel-alignment': 'mechanic',
+};
 
 export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) {
   const staff = useStore((s) => s.staff);
   const jobs = useStore((s) => s.jobs);
   const activeJobId = useStore((s) => s.activeJobId);
   const setActiveJob = useStore((s) => s.setActiveJob);
+  const addStaff = useStore((s) => s.addStaff);
+  const signedInRole = useAuthStore((s) => s.user?.role);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<AuthUser[]>([]);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountError, setAccountError] = useState('');
+
+  useEffect(() => {
+    void usersApi.list().then(setAccounts).catch(() => setAccountError('Unable to load organization accounts.'));
+  }, []);
 
   const totalCompleted = staff.reduce((s, st) => s + st.completedJobs, 0);
-  const avgEff = Math.round(staff.reduce((s, st) => s + st.efficiency, 0) / staff.length);
+  const avgEff = staff.length ? Math.round(staff.reduce((s, st) => s + st.efficiency, 0) / staff.length) : 0;
+  const topPerformer = [...staff].sort((a, b) => b.efficiency - a.efficiency)[0];
 
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6">
-      <PageHeader title="Staff & Reports" subtitle="Team performance and sales leads" />
+      <PageHeader title="Staff & Reports" subtitle="Organization accounts and team performance" actions={<Button onClick={() => setAccountModalOpen(true)}><UserPlus className="h-4 w-4" /> Add account</Button>} />
+
+      <Card className="mb-6 p-5">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <div><h3 className="font-bold">Organization accounts</h3><p className="text-xs text-ink-400">Real sign-in accounts stored in the backend</p></div>
+          <Badge tone="blue">{accounts.length} active</Badge>
+        </div>
+        {accountError && <p className="mb-3 text-sm text-rose-600">{accountError}</p>}
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {accounts.map((account) => <div key={account.id} className="flex items-center gap-3 rounded-lg border border-ink-100 p-3 dark:border-ink-800"><Avatar name={account.name} size="sm" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{account.name}</p><p className="truncate text-xs text-ink-400">{account.email}</p></div><Badge className="ml-auto capitalize">{account.role}</Badge></div>)}
+          {!accounts.length && !accountError && <p className="text-sm text-ink-400">No accounts found.</p>}
+        </div>
+      </Card>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat icon={<Briefcase className="h-5 w-5" />} label="Team Members" value={String(staff.length)} />
@@ -59,13 +91,13 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
         <Stat
           icon={<Award className="h-5 w-5" />}
           label="Top Performer"
-          value={[...staff].sort((a, b) => b.efficiency - a.efficiency)[0].name.split(' ')[0]}
+          value={topPerformer?.name.split(' ')[0] ?? 'None'}
         />
       </div>
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+      <div className="mt-6">
         {/* staff list */}
-        <div className="lg:col-span-2">
+        <div>
           <h3 className="mb-3 font-bold">Team</h3>
           <div className="grid gap-4 sm:grid-cols-2">
             {staff.map((st) => {
@@ -128,29 +160,6 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
           </div>
         </div>
 
-        {/* leads */}
-        <div>
-          <h3 className="mb-3 font-bold">Sales & Insurance Leads</h3>
-          <Card className="divide-y divide-ink-100 dark:divide-ink-800">
-            {LEADS.map((l) => {
-              const Icon = l.icon;
-              return (
-                <div key={l.id} className="flex items-center gap-3 p-4">
-                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
-                    <Icon className="h-5 w-5" />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold">{l.type}</p>
-                    <p className="truncate text-xs text-ink-400">{l.customer}</p>
-                  </div>
-                  <p className="text-sm font-bold text-emerald-600">
-                    ₹{l.value.toLocaleString('en-IN')}
-                  </p>
-                </div>
-              );
-            })}
-          </Card>
-        </div>
       </div>
 
       <StaffDetailModal
@@ -162,8 +171,40 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
         }}
       />
       <JobDetailDrawer jobId={activeJobId} onClose={() => setActiveJob(null)} onPrint={onPrint} />
+      <CreateAccountModal
+        open={accountModalOpen}
+        allowOwner={signedInRole === 'owner'}
+        onClose={() => setAccountModalOpen(false)}
+        onCreated={(account) => {
+          setAccounts((current) => [...current, account]);
+          const staffRole = STAFF_ROLE_BY_ACCOUNT[account.role];
+          if (staffRole) addStaff({ id: account.id, name: account.name, role: staffRole, avatarColor: '#3182f6', efficiency: 0, activeJobs: 0, completedJobs: 0, available: true });
+          setAccountModalOpen(false);
+        }}
+      />
     </div>
   );
+}
+
+function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: boolean; allowOwner: boolean; onClose: () => void; onCreated: (user: AuthUser) => void }) {
+  const [form, setForm] = useState<CreateUserInput>({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const update = (patch: Partial<CreateUserInput>) => setForm((current) => ({ ...current, ...patch }));
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      onCreated(await usersApi.create(form));
+      setForm({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Account creation failed.');
+    } finally {
+      setSaving(false);
+    }
+  };
+  return <Modal open={open} onClose={onClose} title="Add organization account" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div><div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div><div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div><div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => allowOwner || role !== 'owner').map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div><div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={12} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create account'}</Button></div></form></Modal>;
 }
 
 function StaffDetailModal({

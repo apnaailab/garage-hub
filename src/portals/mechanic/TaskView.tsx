@@ -21,6 +21,7 @@ import { PhotoGallery } from '@/components/shared/PhotoGallery';
 import { StageBadge } from '@/components/shared/StatusPill';
 import { nextStage, stageLabel, serviceStatusOf, getStageTasks } from '@/lib/workflows';
 import { cn } from '@/lib/utils';
+import { uploadImage } from '@/lib/images';
 import type { JobCard, PhotoTag, ServiceWorkStatus } from '@/types';
 
 export function TaskView() {
@@ -118,13 +119,15 @@ function TaskCard({ job }: { job: JobCard }) {
       serviceStatusOf(job.serviceStatus, taskId) === status ? 'pending' : status,
     );
 
-  const capture = (tag: PhotoTag) =>
+  const capture = async (tag: PhotoTag, file: File | undefined) => {
+    if (!file) return;
     addPhoto(job.id, {
-      url: `https://picsum.photos/seed/${job.id}-${tag}-${Date.now()}/640/420`,
+      url: await uploadImage(file, `job-${tag}`),
       tag,
       caption: `${stageLabel(job.currentStage)} · ${tag}`,
       uploadedBy: job.assignedStaffId ?? 'me',
     });
+  };
 
   return (
     <div className="overflow-hidden rounded-2xl border border-ink-200/70 bg-white shadow-card dark:border-ink-800 dark:bg-ink-900">
@@ -227,10 +230,11 @@ function TaskCard({ job }: { job: JobCard }) {
           <p className="mb-2 text-xs font-bold uppercase tracking-wide text-ink-400">Photo Capture</p>
           <div className="mb-3 grid grid-cols-3 gap-2">
             {(['entry', 'in-progress', 'final'] as PhotoTag[]).map((t) => (
-              <Button key={t} variant="outline" size="sm" onClick={() => capture(t)}>
+              <label key={t} className="flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-ink-200 px-3 text-xs font-semibold text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800">
                 <Camera className="h-3.5 w-3.5" />
                 <span className="capitalize">{t === 'in-progress' ? 'WIP' : t}</span>
-              </Button>
+                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(event) => { void capture(t, event.target.files?.[0]); event.target.value = ''; }} />
+              </label>
             ))}
           </div>
           {job.photos.length > 0 && <PhotoGallery photos={job.photos} />}

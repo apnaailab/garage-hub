@@ -56,8 +56,17 @@ public sealed class WorkflowSnapshot : Entity
     public Guid UpdatedById { get; set; }
 }
 
+public sealed class PortalSnapshot : Entity
+{
+    public Guid OrganizationId { get; set; }
+    public long Version { get; set; }
+    public required string DataJson { get; set; }
+    public Guid UpdatedById { get; set; }
+}
+
 public sealed class CustomerProfile : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid? UserId { get; set; }
     public required string Name { get; set; }
     public required string Phone { get; set; }
@@ -73,6 +82,7 @@ public sealed class CustomerProfile : Entity
 
 public sealed class Vehicle : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid CustomerId { get; set; }
     public required string RegistrationNumber { get; set; }
     public required string Make { get; set; }
@@ -95,6 +105,7 @@ public sealed class Vehicle : Entity
 
 public sealed class Job : Entity
 {
+    public Guid OrganizationId { get; set; }
     public required string Number { get; set; }
     public Guid CustomerId { get; set; }
     public Guid VehicleId { get; set; }
@@ -118,6 +129,7 @@ public sealed class Job : Entity
 
 public sealed class WorkshopDocument : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid? CustomerId { get; set; }
     public Guid? VehicleId { get; set; }
     public Guid? JobId { get; set; }
@@ -130,6 +142,7 @@ public sealed class WorkshopDocument : Entity
 
 public sealed class Consent : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid JobId { get; set; }
     public required string Kind { get; set; }
     public required string Language { get; set; }
@@ -141,6 +154,7 @@ public sealed class Consent : Entity
 
 public sealed class PickupAssignment : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid JobId { get; set; }
     public Guid DriverId { get; set; }
     public required string Type { get; set; }
@@ -155,6 +169,7 @@ public sealed class PickupAssignment : Entity
 
 public sealed class InventoryPart : Entity
 {
+    public Guid OrganizationId { get; set; }
     public required string Sku { get; set; }
     public required string Name { get; set; }
     public decimal UnitCost { get; set; }
@@ -166,6 +181,7 @@ public sealed class InventoryPart : Entity
 
 public sealed class AttendanceEntry : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid UserId { get; set; }
     public required string EventType { get; set; }
     public DateTimeOffset At { get; set; } = DateTimeOffset.UtcNow;
@@ -173,6 +189,7 @@ public sealed class AttendanceEntry : Entity
 
 public sealed class Invoice : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid JobId { get; set; }
     public required string Number { get; set; }
     public required string Type { get; set; }
@@ -186,6 +203,7 @@ public sealed class Invoice : Entity
 
 public sealed class NotificationRecord : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid? JobId { get; set; }
     public Guid RecipientId { get; set; }
     public required string Channel { get; set; }
@@ -198,6 +216,7 @@ public sealed class NotificationRecord : Entity
 
 public sealed class Reminder : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid? JobId { get; set; }
     public Guid RecipientId { get; set; }
     public required string Kind { get; set; }
@@ -209,6 +228,7 @@ public sealed class Reminder : Entity
 
 public sealed class AuditEvent : Entity
 {
+    public Guid OrganizationId { get; set; }
     public Guid ActorId { get; set; }
     public required string Action { get; set; }
     public required string EntityType { get; set; }
@@ -217,6 +237,7 @@ public sealed class AuditEvent : Entity
 }
 
 public record LoginRequest(string Email, string Password);
+public record CreateUserRequest(string Name, string Email, string Phone, string Role, string Password);
 public record LoginResponse(string Token, UserView User);
 public record UserView(Guid Id, Guid OrganizationId, string Name, string Email, string Phone, string Role, string? PhotoUrl, string? DrivingLicensePhotoUrl);
 public record WorkflowStateRequest(long BaseVersion, System.Text.Json.JsonElement Data);

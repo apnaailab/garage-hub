@@ -75,6 +75,7 @@ public sealed class ReminderWorker(IServiceScopeFactory scopeFactory, IMessageDe
                 {
                     db.Notifications.Add(new NotificationRecord
                     {
+                        OrganizationId = reminder.OrganizationId,
                         JobId = reminder.JobId,
                         RecipientId = reminder.RecipientId,
                         Channel = "system",
@@ -97,9 +98,13 @@ public sealed class ReminderWorker(IServiceScopeFactory scopeFactory, IMessageDe
 
 public static class SeedData
 {
-    public static async Task EnsureAsync(AppDbContext db)
+    public static async Task EnsureAsync(AppDbContext db, IConfiguration configuration, IWebHostEnvironment environment)
     {
-        await db.Database.EnsureCreatedAsync();
+        if (configuration.GetValue("Database:ApplyMigrations", !environment.IsDevelopment()))
+            await db.Database.MigrateAsync();
+        else
+            await db.Database.EnsureCreatedAsync();
+
         if (await db.Users.AnyAsync())
         {
             var legacyOwner = await db.Users.SingleOrDefaultAsync(x => x.Email == "owner@garagehub.local" && x.Name == "Shree Auto Owner");
@@ -112,8 +117,38 @@ public static class SeedData
             return;
         }
 
-        var organization = new Organization { Name = "GarageHub Demo Organization", Slug = "garagehub-demo" };
+        var useDemoData = configuration.GetValue("Seed:DemoData", environment.IsDevelopment());
+        var organizationName = useDemoData
+            ? "GarageHub Demo Organization"
+            : configuration["Bootstrap:OrganizationName"];
+        var ownerEmail = useDemoData ? "owner@garagehub.local" : configuration["Bootstrap:OwnerEmail"];
+        var ownerPassword = useDemoData ? "Demo@123" : configuration["Bootstrap:OwnerPassword"];
+        if (string.IsNullOrWhiteSpace(organizationName) || string.IsNullOrWhiteSpace(ownerEmail) || string.IsNullOrWhiteSpace(ownerPassword))
+            throw new InvalidOperationException("An empty production database requires Bootstrap__OrganizationName, Bootstrap__OwnerEmail and Bootstrap__OwnerPassword.");
+        if (!useDemoData && ownerPassword.Length < 12)
+            throw new InvalidOperationException("Bootstrap__OwnerPassword must contain at least 12 characters.");
+
+        var organization = new Organization
+        {
+            Name = organizationName.Trim(),
+            Slug = organizationName.Trim().ToLowerInvariant().Replace(' ', '-')
+        };
         db.Organizations.Add(organization);
+
+        if (!useDemoData)
+        {
+            db.Users.Add(new UserAccount
+            {
+                OrganizationId = organization.Id,
+                Name = "Organization Owner",
+                Email = ownerEmail.Trim().ToLowerInvariant(),
+                Phone = string.Empty,
+                Role = AppRoles.Owner,
+                PasswordHash = Passwords.Hash(ownerPassword)
+            });
+            await db.SaveChangesAsync();
+            return;
+        }
 
         var people = new (string Name, string Role)[]
         {
@@ -146,6 +181,7 @@ public static class SeedData
         var customerUser = users.Single(x => x.Role == AppRoles.Customer);
         var customer = new CustomerProfile
         {
+            OrganizationId = organization.Id,
             UserId = customerUser.Id,
             Name = customerUser.Name,
             Phone = customerUser.Phone,
@@ -159,6 +195,7 @@ public static class SeedData
 
         var vehicle = new Vehicle
         {
+            OrganizationId = organization.Id,
             CustomerId = customer.Id,
             RegistrationNumber = "MH01AB1234",
             Make = "Honda",
@@ -174,6 +211,7 @@ public static class SeedData
 
         var job = new Job
         {
+            OrganizationId = organization.Id,
             Number = "JC-3001",
             CustomerId = customer.Id,
             VehicleId = vehicle.Id,
@@ -189,8 +227,8 @@ public static class SeedData
         db.Jobs.Add(job);
 
         db.InventoryParts.AddRange(
-            new InventoryPart { Sku = "OIL-5W30", Name = "Engine Oil 5W30", Quantity = 12, LowStockThreshold = 5, UnitCost = 420, SellingPrice = 650 },
-            new InventoryPart { Sku = "WIPER-24", Name = "24-inch Wiper Blade", Quantity = 4, LowStockThreshold = 5, UnitCost = 280, SellingPrice = 450 });
+            new InventoryPart { OrganizationId = organization.Id, Sku = "OIL-5W30", Name = "Engine Oil 5W30", Quantity = 12, LowStockThreshold = 5, UnitCost = 420, SellingPrice = 650 },
+            new InventoryPart { OrganizationId = organization.Id, Sku = "WIPER-24", Name = "24-inch Wiper Blade", Quantity = 4, LowStockThreshold = 5, UnitCost = 280, SellingPrice = 450 });
 
         await db.SaveChangesAsync();
     }

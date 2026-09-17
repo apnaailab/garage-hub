@@ -17,8 +17,7 @@ import { Billing, PartsApprovals } from '@/portals/accountant/Billing';
 import { Tracker } from '@/portals/customer/Tracker';
 import { Approval } from '@/portals/customer/Approval';
 import { OperationsCenter } from '@/portals/shared/OperationsCenter';
-import { WorkflowStudio } from '@/portals/shared/WorkflowStudio';
-import { WorkflowSyncBridge } from '@/components/shared/WorkflowSyncBridge';
+import { PortalSyncBridge } from '@/components/shared/PortalSyncBridge';
 import type { Role } from '@/types';
 
 export default function App() {
@@ -37,7 +36,7 @@ export default function App() {
   const onPrint = useCallback((id: string) => setPrintJobId(id), []);
 
   const renderPage = () => {
-    if (page === 'workflow') return <WorkflowStudio />;
+    if ((role === 'owner' || role === 'manager') && page === 'staff') return <StaffManagement onPrint={onPrint} />;
     if (role === 'owner' || role === 'driver' || role === 'head-mechanic' || role === 'washing' || role === 'wheel-alignment' || role === 'crm') {
       return <OperationsCenter />;
     }
@@ -70,7 +69,7 @@ export default function App() {
 
   return (
     <>
-      <WorkflowSyncBridge />
+      <PortalSyncBridge />
       <AppShell>{renderPage()}</AppShell>
       {printJobId && <PrintJobCard jobId={printJobId} onDone={() => setPrintJobId(null)} />}
     </>

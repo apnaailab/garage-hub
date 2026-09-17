@@ -1,7 +1,7 @@
 # GarageHub requirements implementation status
 
 Source: `req.md`  
-Last reviewed: 2026-09-03
+Last reviewed: 2026-09-17
 
 ## Confirmed product decisions
 
@@ -26,7 +26,7 @@ Last reviewed: 2026-09-03
 | Role access | Implemented | API policies restrict customer personal data, users, inventory, audit, pickup, and actor-specific job queues. |
 | Audit trail | Foundation | Job creation/stage changes, inventory creation, and notification scheduling are audited. More mutations must be added. |
 | Notification scheduler | Foundation | Persistent reminders and queued notifications with a local delivery adapter. Real WhatsApp/SMS/push providers remain. |
-| Document storage | Foundation | Authenticated PDF/image upload with size/type validation and customer visibility metadata. Cloud storage adapter remains. |
+| Document storage | Implemented | Authenticated PDF/image upload with validation, private Supabase Storage, and expiring signed downloads. |
 | Attendance | Foundation | Login, lunch-out, lunch-in, and logout events are persistent. Salary rules/UI remain. |
 
 ## Local end-to-end workflow studio
@@ -59,7 +59,7 @@ The studio state is stored as a versioned EF Core snapshot owned by the authenti
 | Driver address, phone and Maps directions | Foundation | Data and role exist; driver-specific pickup screen and Google Maps deep link remain. |
 | Driver photo and licence | Foundation | User fields exist; secure upload/review UI remains. |
 | Pickup alarms and ETA notification | Foundation | Scheduler can repeat reminders; timing policy and driver controls remain. |
-| Mandatory 8 exterior + 2 interior photos | Implemented | Intake blocks creation until counts are met. Real camera/file upload should replace placeholders. |
+| Mandatory 8 exterior + 2 interior photos | Implemented | Intake captures real camera/gallery files, uploads resized images through the authenticated document API, and blocks creation until counts are met. |
 | Damage marks D/S/C/P/R | Partial | Dent, scratch, crack, peeling and rust exist on the vehicle diagram. Photo-level overlays remain. |
 | Driver-created signed job card | Partial | Printable job card exists; driver signature and photographed job-card handover remain. |
 | Full customer and vehicle master data | Partial | Core identity/vehicle fields exist in API; intake UI does not expose every field. |
@@ -94,15 +94,15 @@ The studio state is stored as a versioned EF Core snapshot owned by the authenti
 | Profit/loss | Not started | Add labour cost, parts consumption, overhead allocation and reports. |
 | Attendance and salaries | Partial | Attendance events exist; shifts, leave, pay rates and salary calculation remain. |
 | Customer birthday/anniversary messaging | Foundation | Profile dates and messaging adapter exist; templates/schedules remain. |
-| Employee permissions | Partial | Server role policies exist; add granular per-user permission overrides and administration UI. |
-| Customer PII restriction | Implemented in API | Customer list is limited to Owner, Manager and Accountant. Existing local mock UI must be fully migrated to API to make this effective end-to-end. |
+| Employee permissions | Partial | Server role policies and organization account administration exist; granular per-user overrides remain. |
+| Customer PII restriction | Implemented in API | Customer list is limited to Owner, Manager and Accountant. Portal records are organization-scoped and synchronized by the backend. |
 | Vehicle ownership/sale deletion | Partial | Vehicle can be deactivated in the model; customer workflow and retention policy remain. |
 | Notification-volume review | Foundation | Notifications are persistent; add recipient/channel analytics and configurable quiet hours. |
 
 ## Highest-priority remaining work
 
-1. Replace placeholder photo counters with camera/file binaries and annotated photo overlays.
+1. Add annotated photo overlays and lifecycle cleanup for abandoned uploads.
 2. Add field-level server commands and granular per-user permissions beyond the current role-gated snapshot workflow.
-3. Add production cloud object storage and malware scanning for uploaded documents/photos.
+3. Add malware scanning for uploaded documents/photos.
 4. Configure real push/SMS/WhatsApp delivery, retries, templates, quiet hours and delivery receipts.
-5. Add production migrations, secrets, backups, monitoring and automated tests.
+5. Add backups, monitoring and an automated regression test project around the validated integration flows.

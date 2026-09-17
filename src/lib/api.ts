@@ -52,10 +52,44 @@ export const authApi = {
   me: () => api<AuthUser>('/me'),
 };
 
-export const workflowApi = {
+export interface CreateUserInput {
+  name: string;
+  email: string;
+  phone: string;
+  role: string;
+  password: string;
+}
+
+export const usersApi = {
+  list: () => api<AuthUser[]>('/users'),
+  create: (input: CreateUserInput) => api<AuthUser>('/users', { method: 'POST', body: JSON.stringify(input) }),
+};
+
+interface UploadedDocument {
+  id: string;
+}
+
+export const documentsApi = {
+  async uploadImage(file: File, type: string): Promise<string> {
+    const form = new FormData();
+    form.set('file', file);
+    form.set('type', type);
+    const document = await api<UploadedDocument>('/documents', { method: 'POST', body: form });
+    return `document:${document.id}`;
+  },
+  async resolveUrl(reference: string): Promise<string> {
+    if (!reference.startsWith('document:')) return reference;
+    const id = reference.slice('document:'.length);
+    const result = await api<{ url: string }>(`/documents/${id}/download`);
+    return result.url.startsWith('/') ? `${new URL(API_URL).origin}${result.url}` : result.url;
+  },
+};
+
+function stateApi(basePath: string) {
+  return {
   async get<T>(): Promise<WorkflowEnvelope<T> | null> {
     const token = localStorage.getItem('garagehub-token');
-    const response = await fetch(`${API_URL}/workflow-state`, {
+    const response = await fetch(`${API_URL}/${basePath}`, {
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (response.status === 404) return null;
@@ -64,7 +98,7 @@ export const workflowApi = {
   },
   async save<T>(baseVersion: number, data: T): Promise<WorkflowSaveResult<T>> {
     const token = localStorage.getItem('garagehub-token');
-    const response = await fetch(`${API_URL}/workflow-state`, {
+    const response = await fetch(`${API_URL}/${basePath}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -79,4 +113,8 @@ export const workflowApi = {
     if (!response.ok) throw new Error(await response.text());
     return { ok: true, envelope: await response.json() as WorkflowEnvelope<T> };
   },
-};
+  };
+}
+
+export const workflowApi = stateApi('workflow-state');
+export const portalApi = stateApi('portal-state');

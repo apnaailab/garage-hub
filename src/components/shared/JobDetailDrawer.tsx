@@ -29,6 +29,7 @@ import { Select, Input } from '@/components/ui/Input';
 import { cn, formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { serviceById, nextStage, stageLabel, serviceStatusOf, SERVICE_STATUS_META, PENDING_WORK_META } from '@/lib/workflows';
 import { jobTotal, servicesTotal, approvedPartsTotal } from '@/lib/jobUtils';
+import { uploadImage } from '@/lib/images';
 
 interface Props {
   jobId: string | null;
@@ -75,9 +76,10 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
   const customer = customerById(customers, job.customerId);
   const nxt = nextStage(job.currentStage);
 
-  const addMockPhoto = (tag: PhotoTag) => {
+  const addCapturedPhoto = async (tag: PhotoTag, file: File | undefined) => {
+    if (!file) return;
     addPhoto(job.id, {
-      url: `https://picsum.photos/seed/${job.id}-${Date.now()}/640/420`,
+      url: await uploadImage(file, `job-${tag}`),
       tag,
       caption: `${stageLabel(job.currentStage)} snapshot`,
       uploadedBy: assignee?.name ?? 'Staff',
@@ -341,9 +343,10 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
         <Section title="Photo Documentation">
           <div className="mb-3 flex flex-wrap gap-2">
             {(['entry', 'in-progress', 'final'] as PhotoTag[]).map((t) => (
-              <Button key={t} size="sm" variant="outline" onClick={() => addMockPhoto(t)}>
+              <label key={t} className="flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-ink-200 px-3 text-xs font-semibold text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800">
                 <Camera className="h-3.5 w-3.5" /> Add {t}
-              </Button>
+                <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(event) => { void addCapturedPhoto(t, event.target.files?.[0]); event.target.value = ''; }} />
+              </label>
             ))}
           </div>
           <PhotoGallery photos={job.photos} />

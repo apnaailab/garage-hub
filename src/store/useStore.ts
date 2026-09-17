@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
 import type {
   JobCard,
   Staff,
@@ -12,13 +11,18 @@ import type {
   ServiceWorkStatus,
   Notification,
 } from '@/types';
-import { JOB_CARDS, STAFF, CUSTOMERS } from '@/data/mockData';
 import { nextStage, stageLabel } from '@/lib/workflows';
 import { nowISO, uid } from '@/lib/utils';
 
 type Theme = 'light' | 'dark';
 
-interface GarageState {
+export interface PortalData {
+  jobs: JobCard[];
+  staff: Staff[];
+  customers: Customer[];
+}
+
+interface GarageState extends PortalData {
   role: Role;
   theme: Theme;
   /** Active nav page within the current role portal. */
@@ -31,9 +35,9 @@ interface GarageState {
   activeCustomerId: string;
   search: string;
 
-  jobs: JobCard[];
-  staff: Staff[];
-  customers: Customer[];
+  serverVersion: number;
+  syncStatus: 'loading' | 'synced' | 'saving' | 'conflict' | 'offline';
+  syncMessage: string;
 
   // --- UI actions ---
   setRole: (role: Role) => void;
@@ -47,6 +51,7 @@ interface GarageState {
   // --- Job actions ---
   addJob: (job: JobCard) => void;
   addCustomer: (customer: Customer) => void;
+  addStaff: (staff: Staff) => void;
   advanceStage: (jobId: string) => void;
   setStage: (jobId: string, stage: StageId) => void;
   assignStaff: (jobId: string, staffId: string) => void;
@@ -62,8 +67,10 @@ interface GarageState {
   pushNotification: (jobId: string, notif: Omit<Notification, 'id' | 'at'>) => void;
   updatePickup: (jobId: string, patch: Partial<NonNullable<JobCard['pickupDrop']>>) => void;
 
-  /** Restore all data back to the seeded mock defaults. */
+  /** Clear the organization portal dataset. */
   resetData: () => void;
+  applyRemote: (data: PortalData, version: number) => void;
+  setSyncState: (status: GarageState['syncStatus'], message?: string, version?: number) => void;
 }
 
 const DEFAULT_PAGE: Record<Role, string> = {
@@ -113,7 +120,6 @@ function applyTheme(theme: Theme) {
 }
 
 export const useStore = create<GarageState>()(
-  persist(
     (set) => ({
       role: 'manager',
       theme: 'light',
@@ -123,9 +129,12 @@ export const useStore = create<GarageState>()(
       activeCustomerId: 'cus-1',
       search: '',
 
-      jobs: JOB_CARDS,
-      staff: STAFF,
-      customers: CUSTOMERS,
+      jobs: [],
+      staff: [],
+      customers: [],
+      serverVersion: 0,
+      syncStatus: 'loading',
+      syncMessage: 'Loading organization data…',
 
       setRole: (role) => set({ role, page: DEFAULT_PAGE[role], activeJobId: null }),
       setPage: (page) => set({ page }),
@@ -143,6 +152,8 @@ export const useStore = create<GarageState>()(
       addJob: (job) => set((s) => ({ jobs: [job, ...s.jobs] })),
 
       addCustomer: (customer) => set((s) => ({ customers: [...s.customers, customer] })),
+
+      addStaff: (staff) => set((s) => ({ staff: s.staff.some((item) => item.id === staff.id) ? s.staff : [...s.staff, staff] })),
 
       advanceStage: (jobId) =>
         set((s) => ({
@@ -297,41 +308,21 @@ export const useStore = create<GarageState>()(
 
       resetData: () =>
         set({
-          jobs: JOB_CARDS,
-          staff: STAFF,
-          customers: CUSTOMERS,
+          jobs: [],
+          staff: [],
+          customers: [],
           activeJobId: null,
           search: '',
         }),
+      applyRemote: (data, serverVersion) => set({ ...data, serverVersion, syncStatus: 'synced', syncMessage: 'Organization data is synchronized.' }),
+      setSyncState: (syncStatus, syncMessage = '', serverVersion) => set((state) => ({ syncStatus, syncMessage, serverVersion: serverVersion ?? state.serverVersion })),
     }),
-    {
-      name: 'garagehub-store',
-      version: 2,
-      storage: createJSONStorage(() => localStorage),
-      // Reseed jobs when upgrading from the old (pre-workshop-workflow) stage model.
-      migrate: (persisted, from) => {
-        const p = (persisted ?? {}) as Partial<GarageState>;
-        if (from < 2) {
-          return { ...p, jobs: JOB_CARDS, staff: STAFF, customers: CUSTOMERS } as GarageState;
-        }
-        return p as GarageState;
-      },
-      // Only persist domain data + a few sticky UI prefs; keep search/page/drawer ephemeral.
-      partialize: (s) => ({
-        role: s.role,
-        theme: s.theme,
-        activeStaffId: s.activeStaffId,
-        activeCustomerId: s.activeCustomerId,
-        jobs: s.jobs,
-        staff: s.staff,
-        customers: s.customers,
-      }),
-      onRehydrateStorage: () => (state) => {
-        if (state) applyTheme(state.theme);
-      },
-    },
-  ),
 );
+
+export function portalDataSnapshot(): PortalData {
+  const state = useStore.getState();
+  return { jobs: state.jobs, staff: state.staff, customers: state.customers };
+}
 
 // ---------------------------------------------------------------------------
 // Selectors / derived helpers

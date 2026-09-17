@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Photo, PhotoTag } from '@/types';
 import { Modal } from '@/components/ui/Modal';
 import { Badge } from '@/components/ui/Badge';
 import { cn, formatDateTime } from '@/lib/utils';
 import { ImageOff } from 'lucide-react';
+import { documentsApi } from '@/lib/api';
 
 const TAG_META: Record<PhotoTag, { label: string; tone: Parameters<typeof Badge>[0]['tone'] }> = {
   entry: { label: 'Entry Inspection', tone: 'gray' },
@@ -16,6 +17,15 @@ const TAG_META: Record<PhotoTag, { label: string; tone: Parameters<typeof Badge>
 
 export function PhotoGallery({ photos }: { photos: Photo[] }) {
   const [active, setActive] = useState<Photo | null>(null);
+  const [urls, setUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let current = true;
+    Promise.all(photos.map(async (photo) => [photo.id, await documentsApi.resolveUrl(photo.url)] as const))
+      .then((entries) => { if (current) setUrls(Object.fromEntries(entries)); })
+      .catch(() => { if (current) setUrls({}); });
+    return () => { current = false; };
+  }, [photos]);
 
   if (photos.length === 0) {
     return (
@@ -36,7 +46,7 @@ export function PhotoGallery({ photos }: { photos: Photo[] }) {
             className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-ink-100 dark:bg-ink-800"
           >
             <img
-              src={p.url}
+              src={urls[p.id] ?? (p.url.startsWith('document:') ? undefined : p.url)}
               alt={p.caption ?? p.tag}
               loading="lazy"
               className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
@@ -53,7 +63,7 @@ export function PhotoGallery({ photos }: { photos: Photo[] }) {
       <Modal open={!!active} onClose={() => setActive(null)} size="lg">
         {active && (
           <div>
-            <img src={active.url} alt={active.caption ?? active.tag} className="w-full" />
+            <img src={urls[active.id] ?? (active.url.startsWith('document:') ? undefined : active.url)} alt={active.caption ?? active.tag} className="w-full" />
             <div className="flex items-center justify-between p-4">
               <div>
                 <Badge tone={TAG_META[active.tag].tone}>{TAG_META[active.tag].label}</Badge>

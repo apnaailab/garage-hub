@@ -2,34 +2,14 @@ import { useState } from 'react';
 import { LockKeyhole, Wrench } from 'lucide-react';
 import { useAuthStore } from '@/store/useAuthStore';
 import { Button } from '@/components/ui/Button';
-import { Input, Label, Select } from '@/components/ui/Input';
-
-const DEMO_ROLES = [
-  ['owner', 'Owner'],
-  ['manager', 'Workshop Manager'],
-  ['receptionist', 'Receptionist'],
-  ['driver', 'Driver'],
-  ['mechanic', 'Technician'],
-  ['head-mechanic', 'Head Mechanic'],
-  ['accountant', 'Accountant'],
-  ['washing', 'Washing Department'],
-  ['wheel-alignment', 'WA/WB Specialist'],
-  ['crm', 'CRM Executive'],
-  ['customer', 'Customer'],
-] as const;
+import { Input, Label } from '@/components/ui/Input';
 
 export function Login() {
   const login = useAuthStore((s) => s.login);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
-  const [role, setRole] = useState('manager');
-  const [email, setEmail] = useState('manager@garagehub.local');
-  const [password, setPassword] = useState('Demo@123');
-
-  const chooseRole = (value: string) => {
-    setRole(value);
-    setEmail(`${value}@garagehub.local`);
-  };
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-ink-50 p-4 dark:bg-ink-950">
@@ -52,12 +32,6 @@ export function Login() {
           }}
         >
           <div>
-            <Label>Demo actor</Label>
-            <Select value={role} onChange={(event) => chooseRole(event.target.value)}>
-              {DEMO_ROLES.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </Select>
-          </div>
-          <div>
             <Label>Email</Label>
             <Input type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} required />
           </div>
@@ -69,7 +43,6 @@ export function Login() {
           <Button type="submit" size="lg" className="w-full" disabled={loading}>
             <LockKeyhole className="h-4 w-4" /> {loading ? 'Signing in…' : 'Sign in'}
           </Button>
-          <p className="text-center text-xs text-ink-400">Local demo password: Demo@123</p>
         </form>
       </section>
     </main>
