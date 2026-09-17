@@ -32,7 +32,7 @@ export function TaskView() {
   const activeStaffId = useStore((s) => s.activeStaffId);
   const setActiveStaff = useStore((s) => s.setActiveStaff);
 
-  const staffId = activeStaffId || user?.id || '';
+  const staffId = staffById(staff, activeStaffId)?.id ?? user?.id ?? activeStaffId;
   const me = staffById(staff, staffId);
   const displayName = me?.name ?? user?.name ?? 'Mechanic';
   const displayRole = me?.role ?? user?.role ?? 'mechanic';
