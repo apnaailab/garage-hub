@@ -11,6 +11,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { useStore, staffById } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -25,25 +26,29 @@ import { uploadImage } from '@/lib/images';
 import type { JobCard, PhotoTag, ServiceWorkStatus } from '@/types';
 
 export function TaskView() {
+  const user = useAuthStore((s) => s.user);
   const staff = useStore((s) => s.staff);
   const jobs = useStore((s) => s.jobs);
   const activeStaffId = useStore((s) => s.activeStaffId);
   const setActiveStaff = useStore((s) => s.setActiveStaff);
 
-  const me = staffById(staff, activeStaffId);
+  const staffId = activeStaffId || user?.id || '';
+  const me = staffById(staff, staffId);
+  const displayName = me?.name ?? user?.name ?? 'Mechanic';
+  const displayRole = me?.role ?? user?.role ?? 'mechanic';
   const myJobs = jobs.filter(
-    (j) => j.assignedStaffId === activeStaffId && j.currentStage !== 'delivered',
+    (j) => j.assignedStaffId === staffId && j.currentStage !== 'delivered',
   );
 
   return (
     <div className="mx-auto max-w-xl p-4 pb-24">
       {/* mechanic header */}
       <div className="mb-5 flex items-center gap-3 rounded-2xl bg-gradient-to-br from-brand-600 to-brand-800 p-4 text-white">
-        {me && <Avatar name={me.name} color="#ffffff33" size="lg" />}
+        <Avatar name={displayName} color={me?.avatarColor ?? '#ffffff33'} size="lg" />
         <div className="min-w-0 flex-1">
-          <p className="text-lg font-extrabold leading-tight">{me?.name}</p>
+          <p className="text-lg font-extrabold leading-tight">{displayName}</p>
           <p className="text-xs capitalize opacity-80">
-            {me?.role} · {myJobs.length} active task{myJobs.length !== 1 ? 's' : ''}
+            {displayRole} · {myJobs.length} active task{myJobs.length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
@@ -58,7 +63,7 @@ export function TaskView() {
               onClick={() => setActiveStaff(s.id)}
               className={cn(
                 'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                activeStaffId === s.id
+                staffId === s.id
                   ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
                   : 'border-ink-200 dark:border-ink-700',
               )}

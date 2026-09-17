@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Car, Clock, MapPin, Wrench, CheckCircle2, Phone, Camera, Bell, DoorOpen } from 'lucide-react';
 import { useStore, staffById, customerById } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { Card } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -11,6 +12,7 @@ import { serviceById, stageLabel, nextStage, STAGES, PENDING_WORK_META } from '@
 import { cn, formatDateTime, timeFromNow } from '@/lib/utils';
 
 export function Tracker() {
+  const user = useAuthStore((s) => s.user);
   const jobs = useStore((s) => s.jobs);
   const customers = useStore((s) => s.customers);
   const staff = useStore((s) => s.staff);
@@ -51,7 +53,7 @@ export function Tracker() {
 
       <div className="mb-5">
         <p className="text-sm text-ink-400">Welcome back,</p>
-        <h1 className="text-2xl font-extrabold tracking-tight">{me?.name}</h1>
+        <h1 className="text-2xl font-extrabold tracking-tight">{me?.name ?? user?.name ?? 'Customer'}</h1>
       </div>
 
       {myJobs.length === 0 ? (
