@@ -1,0 +1,296 @@
+import { useState } from 'react';
+import {
+  Award,
+  Briefcase,
+  CheckCircle2,
+  TrendingUp,
+  ShieldCheck,
+  Car,
+  RefreshCw,
+  IndianRupee,
+  Clock,
+  ChevronRight,
+} from 'lucide-react';
+import { useStore, customerById, staffById } from '@/store/useStore';
+import { PageHeader } from '@/components/layout/AppShell';
+import { Card } from '@/components/ui/Card';
+import { Avatar } from '@/components/ui/Avatar';
+import { Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { StageBadge } from '@/components/shared/StatusPill';
+import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
+import { serviceById } from '@/lib/workflows';
+import { jobTotal } from '@/lib/jobUtils';
+import { cn, formatCurrency, formatDate } from '@/lib/utils';
+
+const ROLE_TONE = {
+  mechanic: 'blue',
+  painter: 'red',
+  detailer: 'sky',
+  electrician: 'amber',
+} as const;
+
+// Mock lead pipeline for the "Reports" section.
+const LEADS = [
+  { id: 'ld-1', type: 'Insurance Renewal', customer: 'Priya Sharma', value: 15000, icon: ShieldCheck },
+  { id: 'ld-2', type: 'Used Car Sale', customer: 'Walk-in · Swift 2018', value: 480000, icon: Car },
+  { id: 'ld-3', type: 'Insurance Renewal', customer: 'Karan Malhotra', value: 22000, icon: ShieldCheck },
+  { id: 'ld-4', type: 'Accessories Upsell', customer: 'Arjun Mehta', value: 8500, icon: RefreshCw },
+];
+
+export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) {
+  const staff = useStore((s) => s.staff);
+  const jobs = useStore((s) => s.jobs);
+  const activeJobId = useStore((s) => s.activeJobId);
+  const setActiveJob = useStore((s) => s.setActiveJob);
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
+
+  const totalCompleted = staff.reduce((s, st) => s + st.completedJobs, 0);
+  const avgEff = Math.round(staff.reduce((s, st) => s + st.efficiency, 0) / staff.length);
+
+  return (
+    <div className="mx-auto max-w-7xl p-4 sm:p-6">
+      <PageHeader title="Staff & Reports" subtitle="Team performance and sales leads" />
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <Stat icon={<Briefcase className="h-5 w-5" />} label="Team Members" value={String(staff.length)} />
+        <Stat icon={<CheckCircle2 className="h-5 w-5" />} label="Jobs Completed" value={String(totalCompleted)} />
+        <Stat icon={<TrendingUp className="h-5 w-5" />} label="Avg Efficiency" value={`${avgEff}%`} />
+        <Stat
+          icon={<Award className="h-5 w-5" />}
+          label="Top Performer"
+          value={[...staff].sort((a, b) => b.efficiency - a.efficiency)[0].name.split(' ')[0]}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {/* staff list */}
+        <div className="lg:col-span-2">
+          <h3 className="mb-3 font-bold">Team</h3>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {staff.map((st) => {
+              const load = jobs.filter((j) => j.assignedStaffId === st.id && j.currentStage !== 'delivered').length;
+              return (
+                <Card
+                  key={st.id}
+                  className="cursor-pointer p-5 transition-all hover:-translate-y-0.5 hover:shadow-card-hover"
+                  onClick={() => setSelectedStaffId(st.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <Avatar name={st.name} color={st.avatarColor} size="lg" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-bold">{st.name}</p>
+                      <Badge tone={ROLE_TONE[st.role]} className="mt-0.5 capitalize">
+                        {st.role}
+                      </Badge>
+                    </div>
+                    <span
+                      className={cn(
+                        'h-2.5 w-2.5 rounded-full',
+                        st.available ? 'bg-emerald-500' : 'bg-ink-300',
+                      )}
+                      title={st.available ? 'Available' : 'Busy'}
+                    />
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-ink-400">Efficiency</span>
+                      <span className="font-bold">{st.efficiency}%</span>
+                    </div>
+                    <div className="h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
+                      <div
+                        className={cn(
+                          'h-full rounded-full',
+                          st.efficiency >= 90
+                            ? 'bg-emerald-500'
+                            : st.efficiency >= 80
+                              ? 'bg-brand-500'
+                              : 'bg-amber-500',
+                        )}
+                        style={{ width: `${st.efficiency}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                    <Mini label="Active" value={String(load)} />
+                    <Mini label="Done" value={String(st.completedJobs)} />
+                    <Mini label="Status" value={st.available ? 'Free' : 'Busy'} />
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-center gap-1 text-xs font-semibold text-brand-600 dark:text-brand-400">
+                    View work history <ChevronRight className="h-3.5 w-3.5" />
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* leads */}
+        <div>
+          <h3 className="mb-3 font-bold">Sales & Insurance Leads</h3>
+          <Card className="divide-y divide-ink-100 dark:divide-ink-800">
+            {LEADS.map((l) => {
+              const Icon = l.icon;
+              return (
+                <div key={l.id} className="flex items-center gap-3 p-4">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400">
+                    <Icon className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{l.type}</p>
+                    <p className="truncate text-xs text-ink-400">{l.customer}</p>
+                  </div>
+                  <p className="text-sm font-bold text-emerald-600">
+                    ₹{l.value.toLocaleString('en-IN')}
+                  </p>
+                </div>
+              );
+            })}
+          </Card>
+        </div>
+      </div>
+
+      <StaffDetailModal
+        staffId={selectedStaffId}
+        onClose={() => setSelectedStaffId(null)}
+        onOpenJob={(id) => {
+          setSelectedStaffId(null);
+          setActiveJob(id);
+        }}
+      />
+      <JobDetailDrawer jobId={activeJobId} onClose={() => setActiveJob(null)} onPrint={onPrint} />
+    </div>
+  );
+}
+
+function StaffDetailModal({
+  staffId,
+  onClose,
+  onOpenJob,
+}: {
+  staffId: string | null;
+  onClose: () => void;
+  onOpenJob: (jobId: string) => void;
+}) {
+  const staff = useStore((s) => s.staff);
+  const jobs = useStore((s) => s.jobs);
+  const customers = useStore((s) => s.customers);
+
+  const member = staffById(staff, staffId ?? undefined);
+  if (!member) return null;
+
+  const workedJobs = jobs
+    .filter((j) => j.assignedStaffId === member.id)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  const active = workedJobs.filter((j) => j.currentStage !== 'delivered').length;
+  const revenue = workedJobs.reduce((s, j) => s + jobTotal(j), 0);
+  const uniqueCars = new Set(workedJobs.map((j) => j.vehicleNo)).size;
+
+  return (
+    <Modal open={!!staffId} onClose={onClose} title="Staff Work History" size="lg">
+      <div className="p-5">
+        {/* header */}
+        <div className="flex items-center gap-4">
+          <Avatar name={member.name} color={member.avatarColor} size="lg" />
+          <div className="flex-1">
+            <p className="text-lg font-extrabold">{member.name}</p>
+            <div className="mt-1 flex items-center gap-2">
+              <Badge tone={ROLE_TONE[member.role]} className="capitalize">
+                {member.role}
+              </Badge>
+              <Badge tone={member.available ? 'green' : 'gray'}>
+                {member.available ? 'Available' : 'Busy'}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        {/* stats */}
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <StatMini icon={<TrendingUp className="h-4 w-4" />} label="Efficiency" value={`${member.efficiency}%`} />
+          <StatMini icon={<Clock className="h-4 w-4" />} label="Active now" value={String(active)} />
+          <StatMini icon={<Car className="h-4 w-4" />} label="Cars worked" value={String(uniqueCars)} />
+          <StatMini icon={<IndianRupee className="h-4 w-4" />} label="Revenue" value={formatCurrency(revenue)} />
+        </div>
+
+        {/* job history */}
+        <p className="mb-2 mt-6 text-xs font-bold uppercase tracking-wide text-ink-400">
+          Cars worked on ({workedJobs.length})
+        </p>
+        {workedJobs.length === 0 ? (
+          <p className="rounded-xl bg-ink-50 p-4 text-sm text-ink-400 dark:bg-ink-800/60">
+            No jobs assigned yet.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {workedJobs.map((j) => {
+              const cust = customerById(customers, j.customerId);
+              return (
+                <button
+                  key={j.id}
+                  onClick={() => onOpenJob(j.id)}
+                  className="flex w-full items-center gap-3 rounded-xl border border-ink-200/70 p-3 text-left transition-colors hover:bg-ink-50 dark:border-ink-800 dark:hover:bg-ink-800/60"
+                >
+                  <span className="rounded-md bg-ink-900 px-1.5 py-0.5 font-mono text-[11px] font-bold text-white dark:bg-brand-600">
+                    {j.vehicleNo}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">
+                      {j.make} {j.model}
+                    </p>
+                    <p className="truncate text-xs text-ink-400">
+                      {cust?.name} · {j.serviceIds.map((id) => serviceById(id)?.name).filter(Boolean).join(', ')}
+                    </p>
+                  </div>
+                  <div className="hidden text-right sm:block">
+                    <p className="text-sm font-bold">{formatCurrency(jobTotal(j))}</p>
+                    <p className="text-[11px] text-ink-400">{formatDate(j.createdAt)}</p>
+                  </div>
+                  <StageBadge stage={j.currentStage} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function StatMini({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-ink-50 p-3 dark:bg-ink-800/60">
+      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-white text-brand-600 dark:bg-ink-900 dark:text-brand-400">
+        {icon}
+      </span>
+      <p className="mt-2 text-base font-extrabold leading-tight">{value}</p>
+      <p className="text-[11px] text-ink-400">{label}</p>
+    </div>
+  );
+}
+
+function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+  return (
+    <Card className="flex items-center gap-3 p-5">
+      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-400">
+        {icon}
+      </span>
+      <div>
+        <p className="text-xl font-extrabold tracking-tight">{value}</p>
+        <p className="text-xs text-ink-400">{label}</p>
+      </div>
+    </Card>
+  );
+}
+
+function Mini({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-ink-50 py-2 dark:bg-ink-800/60">
+      <p className="text-sm font-bold">{value}</p>
+      <p className="text-[10px] uppercase tracking-wide text-ink-400">{label}</p>
+    </div>
+  );
+}

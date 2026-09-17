@@ -1,0 +1,321 @@
+import type { JobCard, Staff, Customer } from '@/types';
+
+// ---------------------------------------------------------------------------
+// Deterministic placeholder photos (picsum, seeded for stability)
+// ---------------------------------------------------------------------------
+const img = (seed: string) => `https://picsum.photos/seed/${seed}/640/420`;
+
+// ---------------------------------------------------------------------------
+// Staff
+// ---------------------------------------------------------------------------
+export const STAFF: Staff[] = [
+  { id: 'stf-1', name: 'Rajesh Kumar', role: 'mechanic', avatarColor: '#3182f6', efficiency: 92, activeJobs: 2, completedJobs: 148, available: true },
+  { id: 'stf-2', name: 'Amit Verma', role: 'painter', avatarColor: '#e11d48', efficiency: 88, activeJobs: 1, completedJobs: 96, available: true },
+  { id: 'stf-3', name: 'Sunil Yadav', role: 'detailer', avatarColor: '#0ea5e9', efficiency: 95, activeJobs: 1, completedJobs: 210, available: false },
+  { id: 'stf-4', name: 'Imran Sheikh', role: 'electrician', avatarColor: '#f59e0b', efficiency: 84, activeJobs: 1, completedJobs: 72, available: true },
+  { id: 'stf-5', name: 'Deepak Nair', role: 'mechanic', avatarColor: '#10b981', efficiency: 79, activeJobs: 0, completedJobs: 54, available: true },
+  { id: 'stf-6', name: 'Vikram Singh', role: 'painter', avatarColor: '#8b5cf6', efficiency: 90, activeJobs: 0, completedJobs: 121, available: true },
+];
+
+// ---------------------------------------------------------------------------
+// Customers
+// ---------------------------------------------------------------------------
+export const CUSTOMERS: Customer[] = [
+  { id: 'cus-1', name: 'Priya Sharma', phone: '+91 98200 11223', email: 'priya.s@example.com', address: '14 Rose Villa, Bandra West, Mumbai 400050' },
+  { id: 'cus-2', name: 'Arjun Mehta', phone: '+91 99870 44551', email: 'arjun.m@example.com', address: '7 Palm Grove, Koramangala, Bengaluru 560034' },
+  { id: 'cus-3', name: 'Neha Kapoor', phone: '+91 98765 78901', email: 'neha.k@example.com', address: '22 Green Park, New Delhi 110016' },
+  { id: 'cus-4', name: 'Rohit Desai', phone: '+91 90045 33210', email: 'rohit.d@example.com', address: '3 Sea Breeze, Vashi, Navi Mumbai 400703' },
+  { id: 'cus-5', name: 'Sana Khan', phone: '+91 91234 90876', email: 'sana.k@example.com', address: '9 Lake View, Hitech City, Hyderabad 500081' },
+  { id: 'cus-6', name: 'Karan Malhotra', phone: '+91 98111 23456', email: 'karan.m@example.com', address: '18 Hill Crest, Aundh, Pune 411007' },
+];
+
+// ---------------------------------------------------------------------------
+// Helpers for relative timestamps
+// ---------------------------------------------------------------------------
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
+const hoursAhead = (h: number) => new Date(Date.now() + h * 3600_000).toISOString();
+
+// ---------------------------------------------------------------------------
+// Job cards spread across every workflow stage
+// ---------------------------------------------------------------------------
+export const JOB_CARDS: JobCard[] = [
+  {
+    id: 'JC-2041',
+    vehicleNo: 'MH01AB1234',
+    make: 'Honda',
+    model: 'City',
+    year: 2021,
+    color: 'Pearl White',
+    fuelLevel: '1/2',
+    odometer: 42150,
+    customerId: 'cus-1',
+    serviceIds: ['svc-denting', 'svc-polish'],
+    serviceStatus: { 'svc-denting': 'in-progress' },
+    currentStage: 'in-progress',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(30) },
+      { stage: 'estimate', at: hoursAgo(26) },
+      { stage: 'in-progress', at: hoursAgo(8) },
+    ],
+    assignedStaffId: 'stf-2',
+    priority: 'high',
+    damageMarkers: [
+      { id: 'dm-1', x: 28, y: 55, type: 'dent', note: 'Front-left door dent' },
+      { id: 'dm-2', x: 70, y: 40, type: 'scratch', note: 'Rear quarter panel scratch' },
+    ],
+    photos: [
+      { id: 'ph-1', url: img('city-entry'), tag: 'entry', caption: 'Front-left damage', uploadedBy: 'stf-2', uploadedAt: hoursAgo(29) },
+      { id: 'ph-2', url: img('city-damage'), tag: 'damage', caption: 'Close-up dent', uploadedBy: 'stf-2', uploadedAt: hoursAgo(29) },
+      { id: 'ph-3', url: img('city-wip'), tag: 'in-progress', caption: 'Panel prepped for paint', uploadedBy: 'stf-2', uploadedAt: hoursAgo(6) },
+    ],
+    parts: [
+      { id: 'pt-1', name: 'Door skin panel', quantity: 1, price: 4500, approved: true, notedBy: 'stf-2' },
+      { id: 'pt-2', name: 'Primer & clear coat', quantity: 2, price: 1800, approved: null, notedBy: 'stf-2' },
+    ],
+    notes: [
+      { id: 'nt-1', text: 'Customer wants OEM paint match, no aftermarket.', author: 'Reception', createdAt: hoursAgo(29) },
+    ],
+    createdAt: hoursAgo(30),
+    estimatedDelivery: hoursAhead(20),
+    customerConcerns: 'Front-left door dented after parking scrape; wants OEM paint match.',
+    referralSource: 'Google Search',
+    advanceApproved: true,
+    extraWorkApproved: null,
+    paid: false,
+    pickupDrop: {
+      type: 'both',
+      address: '14 Rose Villa, Bandra West, Mumbai 400050',
+      driverId: 'stf-5',
+      scheduledAt: hoursAhead(20),
+      status: 'scheduled',
+    },
+  },
+  {
+    id: 'JC-2042',
+    vehicleNo: 'KA05CD5678',
+    make: 'Hyundai',
+    model: 'Creta',
+    year: 2022,
+    color: 'Phantom Black',
+    fuelLevel: '3/4',
+    odometer: 18900,
+    customerId: 'cus-2',
+    serviceIds: ['svc-detailing', 'svc-interior'],
+    serviceStatus: { 'svc-detailing': 'complete', 'svc-interior': 'complete' },
+    currentStage: 'quality-check',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(10) },
+      { stage: 'in-progress', at: hoursAgo(7) },
+      { stage: 'quality-check', at: hoursAgo(1) },
+    ],
+    assignedStaffId: 'stf-3',
+    priority: 'normal',
+    damageMarkers: [],
+    photos: [
+      { id: 'ph-4', url: img('creta-entry'), tag: 'entry', caption: 'Before detailing', uploadedBy: 'stf-3', uploadedAt: hoursAgo(9) },
+      { id: 'ph-5', url: img('creta-final'), tag: 'final', caption: 'Mirror finish', uploadedBy: 'stf-3', uploadedAt: hoursAgo(1) },
+    ],
+    parts: [],
+    notes: [
+      { id: 'nt-2', text: 'Ceramic-safe products only.', author: 'Sunil Yadav', createdAt: hoursAgo(6) },
+    ],
+    createdAt: hoursAgo(10),
+    estimatedDelivery: hoursAhead(3),
+    advanceApproved: true,
+    extraWorkApproved: true,
+    paid: false,
+  },
+  {
+    id: 'JC-2043',
+    vehicleNo: 'DL08EF9012',
+    make: 'Maruti Suzuki',
+    model: 'Swift',
+    year: 2019,
+    color: 'Fire Red',
+    fuelLevel: '1/4',
+    odometer: 68400,
+    customerId: 'cus-3',
+    serviceIds: ['svc-oil', 'svc-checkup', 'svc-alignment'],
+    currentStage: 'estimate',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(4) },
+      { stage: 'estimate', at: hoursAgo(2) },
+    ],
+    assignedStaffId: 'stf-1',
+    priority: 'normal',
+    damageMarkers: [
+      { id: 'dm-3', x: 50, y: 75, type: 'rust', note: 'Underbody rust spot' },
+    ],
+    photos: [
+      { id: 'ph-6', url: img('swift-entry'), tag: 'entry', uploadedBy: 'stf-1', uploadedAt: hoursAgo(4) },
+    ],
+    parts: [],
+    notes: [],
+    createdAt: hoursAgo(4),
+    estimatedDelivery: hoursAhead(6),
+    customerConcerns: 'Engine noise on cold start; overdue service.',
+    referralSource: 'Repeat Customer',
+    estimateReadyBy: new Date(new Date().setHours(15, 0, 0, 0)).toISOString(),
+    advanceApproved: false,
+    extraWorkApproved: null,
+    paid: false,
+    pickupDrop: {
+      type: 'pickup',
+      address: '22 Green Park, New Delhi 110016',
+      scheduledAt: hoursAgo(5),
+      status: 'completed',
+    },
+  },
+  {
+    id: 'JC-2044',
+    vehicleNo: 'MH02GH3456',
+    make: 'Toyota',
+    model: 'Fortuner',
+    year: 2023,
+    color: 'Super White',
+    fuelLevel: 'F',
+    odometer: 9800,
+    customerId: 'cus-4',
+    serviceIds: ['svc-accident'],
+    currentStage: 'entry',
+    stageHistory: [{ stage: 'entry', at: hoursAgo(1) }],
+    priority: 'high',
+    damageMarkers: [
+      { id: 'dm-4', x: 20, y: 45, type: 'crack', note: 'Cracked bumper' },
+      { id: 'dm-5', x: 35, y: 60, type: 'dent', note: 'Fender crumple' },
+    ],
+    photos: [
+      { id: 'ph-7', url: img('fortuner-damage'), tag: 'damage', caption: 'Front collision damage', uploadedBy: 'Reception', uploadedAt: hoursAgo(1) },
+    ],
+    parts: [],
+    notes: [
+      { id: 'nt-3', text: 'Insurance surveyor scheduled for tomorrow 11 AM.', author: 'Reception', createdAt: hoursAgo(1) },
+    ],
+    createdAt: hoursAgo(1),
+    estimatedDelivery: hoursAhead(120),
+    advanceApproved: false,
+    extraWorkApproved: null,
+    paid: false,
+    insuranceClaim: { provider: 'ICICI Lombard', claimNo: 'CLM-889201', docUploaded: true },
+  },
+  {
+    id: 'JC-2045',
+    vehicleNo: 'TS09IJ7890',
+    make: 'Kia',
+    model: 'Seltos',
+    year: 2020,
+    color: 'Gravity Grey',
+    fuelLevel: '1/2',
+    odometer: 51230,
+    customerId: 'cus-5',
+    serviceIds: ['svc-ac', 'svc-foam'],
+    currentStage: 'billing',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(28) },
+      { stage: 'estimate', at: hoursAgo(24) },
+      { stage: 'in-progress', at: hoursAgo(20) },
+      { stage: 'quality-check', at: hoursAgo(4) },
+      { stage: 'billing', at: hoursAgo(1) },
+    ],
+    assignedStaffId: 'stf-4',
+    priority: 'normal',
+    damageMarkers: [],
+    photos: [
+      { id: 'ph-8', url: img('seltos-entry'), tag: 'entry', uploadedBy: 'stf-4', uploadedAt: hoursAgo(27) },
+      { id: 'ph-9', url: img('seltos-wip'), tag: 'in-progress', caption: 'Compressor replaced', uploadedBy: 'stf-4', uploadedAt: hoursAgo(18) },
+      { id: 'ph-10', url: img('seltos-final'), tag: 'final', caption: 'Delivered fresh', uploadedBy: 'stf-4', uploadedAt: hoursAgo(1) },
+    ],
+    parts: [
+      { id: 'pt-3', name: 'AC compressor', quantity: 1, price: 12000, approved: true, notedBy: 'stf-4' },
+    ],
+    notes: [],
+    createdAt: hoursAgo(28),
+    estimatedDelivery: hoursAhead(2),
+    customerConcerns: 'AC not cooling; requested a foam wash too.',
+    referralSource: 'Instagram',
+    pendingWork: ['washing', 'wheel-alignment'],
+    advanceApproved: true,
+    extraWorkApproved: true,
+    paid: false,
+    pickupDrop: {
+      type: 'drop',
+      address: '9 Lake View, Hitech City, Hyderabad 500081',
+      driverId: 'stf-5',
+      scheduledAt: hoursAhead(2),
+      status: 'scheduled',
+    },
+  },
+  {
+    id: 'JC-2046',
+    vehicleNo: 'MH12KL2468',
+    make: 'Tata',
+    model: 'Nexon',
+    year: 2021,
+    color: 'Flame Orange',
+    fuelLevel: '3/4',
+    odometer: 33100,
+    customerId: 'cus-6',
+    serviceIds: ['svc-accessories', 'svc-polish'],
+    currentStage: 'delivered',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(50) },
+      { stage: 'in-progress', at: hoursAgo(46) },
+      { stage: 'quality-check', at: hoursAgo(30) },
+      { stage: 'billing', at: hoursAgo(28) },
+      { stage: 'delivered', at: hoursAgo(24) },
+    ],
+    assignedStaffId: 'stf-6',
+    priority: 'low',
+    damageMarkers: [],
+    photos: [
+      { id: 'ph-11', url: img('nexon-final'), tag: 'final', caption: 'Accessories fitted', uploadedBy: 'stf-6', uploadedAt: hoursAgo(29) },
+    ],
+    parts: [
+      { id: 'pt-4', name: 'Reverse camera kit', quantity: 1, price: 3500, approved: true, notedBy: 'stf-6' },
+      { id: 'pt-5', name: 'Floor mats (premium)', quantity: 1, price: 2200, approved: true, notedBy: 'stf-6' },
+    ],
+    notes: [],
+    createdAt: hoursAgo(50),
+    estimatedDelivery: hoursAgo(26),
+    customerConcerns: 'Reverse camera + premium floor mats fitment.',
+    referralSource: 'Referral (Friend)',
+    advanceApproved: true,
+    extraWorkApproved: true,
+    paid: true,
+    paymentMode: 'upi',
+    gatePassIssued: true,
+  },
+  {
+    id: 'JC-2047',
+    vehicleNo: 'KA03MN1357',
+    make: 'Mahindra',
+    model: 'Thar',
+    year: 2022,
+    color: 'Napoli Black',
+    fuelLevel: 'E',
+    odometer: 21750,
+    customerId: 'cus-2',
+    serviceIds: ['svc-detailing'],
+    serviceStatus: { 'svc-detailing': 'in-progress' },
+    currentStage: 'in-progress',
+    stageHistory: [
+      { stage: 'entry', at: hoursAgo(6) },
+      { stage: 'in-progress', at: hoursAgo(3) },
+    ],
+    assignedStaffId: 'stf-3',
+    priority: 'normal',
+    damageMarkers: [],
+    photos: [
+      { id: 'ph-12', url: img('thar-wip'), tag: 'in-progress', caption: 'Foam bath', uploadedBy: 'stf-3', uploadedAt: hoursAgo(2) },
+    ],
+    parts: [],
+    notes: [
+      { id: 'nt-4', text: 'Extra mud underbody — will need degreaser.', author: 'Sunil Yadav', createdAt: hoursAgo(2) },
+    ],
+    createdAt: hoursAgo(6),
+    estimatedDelivery: hoursAhead(4),
+    advanceApproved: true,
+    extraWorkApproved: null,
+    paid: false,
+  },
+];
