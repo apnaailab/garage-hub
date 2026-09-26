@@ -18,12 +18,27 @@ const TAG_META: Record<PhotoTag, { label: string; tone: Parameters<typeof Badge>
 export function PhotoGallery({ photos }: { photos: Photo[] }) {
   const [active, setActive] = useState<Photo | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const [failed, setFailed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let current = true;
-    Promise.all(photos.map(async (photo) => [photo.id, await documentsApi.resolveUrl(photo.url)] as const))
-      .then((entries) => { if (current) setUrls(Object.fromEntries(entries)); })
-      .catch(() => { if (current) setUrls({}); });
+    Promise.all(photos.map(async (photo) => {
+      try {
+        return { id: photo.id, url: await documentsApi.resolveUrl(photo.url) };
+      } catch {
+        return { id: photo.id, url: null };
+      }
+    })).then((entries) => {
+      if (!current) return;
+      const resolvedUrls: Record<string, string> = {};
+      const failedIds = new Set<string>();
+      entries.forEach((entry) => {
+        if (entry.url) resolvedUrls[entry.id] = entry.url;
+        else failedIds.add(entry.id);
+      });
+      setUrls(resolvedUrls);
+      setFailed(failedIds);
+    });
     return () => { current = false; };
   }, [photos]);
 
@@ -39,25 +54,36 @@ export function PhotoGallery({ photos }: { photos: Photo[] }) {
   return (
     <>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-        {photos.map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setActive(p)}
-            className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-ink-100 dark:bg-ink-800"
-          >
-            <img
-              src={urls[p.id] ?? (p.url.startsWith('document:') ? undefined : p.url)}
-              alt={p.caption ?? p.tag}
-              loading="lazy"
-              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-            />
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
-              <Badge tone={TAG_META[p.tag].tone} className="text-[10px]">
-                {TAG_META[p.tag].label}
-              </Badge>
-            </div>
-          </button>
-        ))}
+        {photos.map((p) => {
+          const source = urls[p.id] ?? (p.url.startsWith('document:') ? null : p.url);
+          return (
+            <button
+              key={p.id}
+              onClick={() => source && setActive(p)}
+              disabled={!source}
+              className="group relative aspect-[4/3] overflow-hidden rounded-xl bg-ink-100 dark:bg-ink-800"
+            >
+              {source ? (
+                <img
+                  src={source}
+                  alt={p.caption ?? p.tag}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                />
+              ) : (
+                <div className="flex h-full flex-col items-center justify-center gap-2 text-ink-400">
+                  <ImageOff className="h-6 w-6" />
+                  <span className="text-xs">{failed.has(p.id) ? 'Photo unavailable' : 'Loading photo'}</span>
+                </div>
+              )}
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                <Badge tone={TAG_META[p.tag].tone} className="text-[10px]">
+                  {TAG_META[p.tag].label}
+                </Badge>
+              </div>
+            </button>
+          );
+        })}
       </div>
 
       <Modal open={!!active} onClose={() => setActive(null)} size="lg">

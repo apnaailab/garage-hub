@@ -36,11 +36,10 @@ export default function App() {
   const onPrint = useCallback((id: string) => setPrintJobId(id), []);
 
   const renderPage = () => {
-    if ((role === 'owner' || role === 'manager') && page === 'staff') return <StaffManagement onPrint={onPrint} />;
-    if (role === 'owner' || role === 'driver' || role === 'head-mechanic' || role === 'washing' || role === 'wheel-alignment' || role === 'crm') {
+    if (role === 'driver' || role === 'head-mechanic' || role === 'washing' || role === 'wheel-alignment' || role === 'crm') {
       return <OperationsCenter />;
     }
-    if (role === 'manager') {
+    if (role === 'owner' || role === 'manager') {
       if (page === 'board') return <ServiceBoard onPrint={onPrint} />;
       if (page === 'vehicles') return <Vehicles onPrint={onPrint} />;
       if (page === 'staff') return <StaffManagement onPrint={onPrint} />;

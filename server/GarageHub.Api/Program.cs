@@ -49,15 +49,23 @@ builder.Services.AddSwaggerGen();
 var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
 if (allowedOrigins is null || allowedOrigins.Length == 0)
 {
-    if (!builder.Environment.IsDevelopment()) throw new InvalidOperationException("AllowedOrigins__0 is required in production.");
-    allowedOrigins = ["http://localhost:5173", "http://127.0.0.1:5173"];
+    allowedOrigins = builder.Environment.IsDevelopment()
+        ? ["http://localhost:5173", "http://127.0.0.1:5173"]
+        : [];
 }
-builder.Services.AddCors(o => o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod()));
+builder.Services.AddCors(o =>
+{
+    if (allowedOrigins.Length > 0)
+        o.AddDefaultPolicy(p => p.WithOrigins(allowedOrigins).AllowAnyHeader().AllowAnyMethod());
+});
 
 var app = builder.Build();
-app.UseSwagger();
-app.UseSwaggerUI();
-app.UseCors();
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swagger:Enabled"))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+if (allowedOrigins.Length > 0) app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseStaticFiles();
@@ -190,7 +198,7 @@ api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
         .OrderBy(x => x.Role).ThenBy(x => x.Name)
         .Select(x => new UserView(x.Id, x.OrganizationId, x.Name, x.Email, x.Phone, x.Role, x.PhotoUrl, x.DrivingLicensePhotoUrl)).ToListAsync());
 })
-    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager));
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
 
 api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -208,7 +216,7 @@ api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principa
     Audit(db, principal, "create", "user", user.Id, user.Role);
     await db.SaveChangesAsync();
     return Results.Created($"/api/users/{user.Id}", ToView(user));
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
 
 api.MapGet("/dashboard", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -551,7 +559,13 @@ api.MapGet("/documents/{id:guid}/download", async (Guid id, ClaimsPrincipal prin
     var organizationId = OrganizationId(principal);
     var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId, cancellationToken);
     if (document is null) return Results.NotFound();
-    if (principal.IsInRole(AppRoles.Customer) && (!document.CustomerVisible || !await CanAccessDocument(document, principal, db))) return Results.Forbid();
+    if (principal.IsInRole(AppRoles.Customer) &&
+        !document.CustomerVisible &&
+        !await IsPortalPhoto(id, organizationId, db, cancellationToken)) return Results.Forbid();
+    if (principal.IsInRole(AppRoles.Customer) &&
+        document.CustomerVisible &&
+        !await CanAccessDocument(document, principal, db) &&
+        !await IsPortalPhoto(id, organizationId, db, cancellationToken)) return Results.Forbid();
     return Results.Ok(new { url = await storage.GetDownloadUrlAsync(document.StorageKey, cancellationToken), expiresInSeconds = 3600 });
 });
 
@@ -622,6 +636,27 @@ static async Task<bool> CanAccessDocument(WorkshopDocument document, ClaimsPrinc
     var customerIds = db.Customers.Where(x => x.OrganizationId == organizationId && x.UserId == userId).Select(x => x.Id);
     if (document.CustomerId.HasValue && await customerIds.ContainsAsync(document.CustomerId.Value)) return true;
     return document.JobId.HasValue && await db.Jobs.AnyAsync(x => x.Id == document.JobId.Value && x.OrganizationId == organizationId && customerIds.Contains(x.CustomerId));
+}
+static async Task<bool> IsPortalPhoto(Guid documentId, Guid organizationId, AppDbContext db, CancellationToken cancellationToken)
+{
+    var dataJson = await db.PortalSnapshots.AsNoTracking()
+        .Where(x => x.OrganizationId == organizationId)
+        .Select(x => x.DataJson)
+        .SingleOrDefaultAsync(cancellationToken);
+    if (dataJson is null) return false;
+
+    using var snapshot = JsonDocument.Parse(dataJson);
+    if (!snapshot.RootElement.TryGetProperty("jobs", out var jobs) || jobs.ValueKind != JsonValueKind.Array) return false;
+    var reference = $"document:{documentId}";
+    foreach (var job in jobs.EnumerateArray())
+    {
+        if (!job.TryGetProperty("photos", out var photos) || photos.ValueKind != JsonValueKind.Array) continue;
+        foreach (var photo in photos.EnumerateArray())
+        {
+            if (photo.TryGetProperty("url", out var url) && url.GetString() == reference) return true;
+        }
+    }
+    return false;
 }
 static void Audit(AppDbContext db, ClaimsPrincipal principal, string action, string entityType, Guid entityId, string detail) =>
     db.AuditEvents.Add(new AuditEvent

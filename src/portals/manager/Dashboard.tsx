@@ -3,11 +3,11 @@ import {
   IndianRupee,
   Timer,
   AlertTriangle,
-  TrendingUp,
-  TrendingDown,
+  CheckCircle2,
   Wrench,
 } from 'lucide-react';
 import { useStore, customerById, staffById } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { PageHeader } from '@/components/layout/AppShell';
 import { Card } from '@/components/ui/Card';
 import { Avatar } from '@/components/ui/Avatar';
@@ -16,9 +16,21 @@ import { StageProgress } from '@/components/shared/StageProgress';
 import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
 import { STAGES } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
-import { cn, formatCurrency } from '@/lib/utils';
+import { cn, formatCurrency, formatDate } from '@/lib/utils';
+import type { StageId } from '@/types';
+
+const PIPELINE_TONE: Record<StageId, { bar: string; label: string }> = {
+  entry: { bar: 'bg-ink-500', label: 'bg-ink-100 text-ink-700 dark:bg-ink-800 dark:text-ink-200' },
+  estimate: { bar: 'bg-violet-500', label: 'bg-violet-50 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300' },
+  'in-progress': { bar: 'bg-blue-500', label: 'bg-blue-50 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300' },
+  'final-jobs': { bar: 'bg-sky-500', label: 'bg-sky-50 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300' },
+  'quality-check': { bar: 'bg-amber-500', label: 'bg-amber-50 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300' },
+  billing: { bar: 'bg-rose-500', label: 'bg-rose-50 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300' },
+  delivered: { bar: 'bg-emerald-500', label: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300' },
+};
 
 export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
+  const canViewFinancials = useAuthStore((s) => s.user?.role === 'owner');
   const jobs = useStore((s) => s.jobs);
   const staff = useStore((s) => s.staff);
   const customers = useStore((s) => s.customers);
@@ -55,34 +67,36 @@ export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
       />
 
       {/* metrics */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className={cn('grid grid-cols-2 gap-4', canViewFinancials ? 'lg:grid-cols-4' : 'lg:grid-cols-3')}>
         <Metric
           icon={<Car className="h-5 w-5" />}
           tone="brand"
           label="Active Jobs"
           value={String(active.length)}
-          trend={{ dir: 'up', text: '3 new today' }}
+          detail={`${jobs.length} total recorded`}
         />
-        <Metric
-          icon={<IndianRupee className="h-5 w-5" />}
-          tone="emerald"
-          label="Pipeline Revenue"
-          value={formatCurrency(revenue)}
-          trend={{ dir: 'up', text: '12% vs last wk' }}
-        />
+        {canViewFinancials && (
+          <Metric
+            icon={<IndianRupee className="h-5 w-5" />}
+            tone="emerald"
+            label="Pipeline Revenue"
+            value={formatCurrency(revenue)}
+            detail="Across all recorded jobs"
+          />
+        )}
         <Metric
           icon={<Timer className="h-5 w-5" />}
           tone="sky"
           label="Avg Turnaround"
           value={`${avgTurnaround.toFixed(0)}h`}
-          trend={{ dir: 'down', text: '4h faster' }}
+          detail={`Across ${delivered.length} completed vehicle${delivered.length === 1 ? '' : 's'}`}
         />
         <Metric
-          icon={<AlertTriangle className="h-5 w-5" />}
-          tone="amber"
-          label="High Priority"
-          value={String(jobs.filter((j) => j.priority === 'high').length)}
-          trend={{ dir: 'up', text: 'Needs attention' }}
+          icon={<CheckCircle2 className="h-5 w-5" />}
+          tone="emerald"
+          label="Completed Vehicles"
+          value={String(delivered.length)}
+          detail="Retained in vehicle history"
         />
       </div>
 
@@ -96,14 +110,14 @@ export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
           <div className="space-y-3 p-5 pt-2">
             {byStage.map(({ stage, count }) => (
               <div key={stage.id} className="flex items-center gap-3">
-                <div className="w-28 shrink-0 text-sm font-medium text-ink-600 dark:text-ink-300">
+                <div className={cn('w-28 shrink-0 rounded-md px-2 py-1 text-sm font-semibold', PIPELINE_TONE[stage.id].label)}>
                   {stage.label}
                 </div>
                 <div className="h-7 flex-1 overflow-hidden rounded-lg bg-ink-100 dark:bg-ink-800">
                   <div
                     className={cn(
                       'flex h-full items-center justify-end rounded-lg px-2 text-xs font-bold text-white transition-all',
-                      count === 0 ? 'bg-transparent text-ink-400' : 'bg-brand-500',
+                      count === 0 ? 'bg-transparent text-ink-400' : PIPELINE_TONE[stage.id].bar,
                     )}
                     style={{ width: `${Math.max((count / maxCount) * 100, count ? 12 : 0)}%` }}
                   >
@@ -124,10 +138,12 @@ export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
             <div className="rounded-2xl bg-amber-50 p-4 dark:bg-amber-950/40">
               <div className="flex items-center gap-2 text-amber-700 dark:text-amber-300">
                 <AlertTriangle className="h-5 w-5" />
-                <p className="font-bold">{bottleneck.stage.label}</p>
+                <p className="font-bold">{active.length === 0 ? 'No active bottleneck' : bottleneck.stage.label}</p>
               </div>
               <p className="mt-1 text-sm text-amber-700/80 dark:text-amber-300/80">
-                {bottleneck.count} vehicles currently queued here — the busiest stage on the floor.
+                {active.length === 0
+                  ? 'All recorded vehicles have completed the workshop workflow.'
+                  : `${bottleneck.count} vehicles currently queued here — the busiest stage on the floor.`}
               </p>
             </div>
             <div className="mt-4">
@@ -157,11 +173,14 @@ export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
       </div>
 
       {/* recent jobs */}
-      <Card className="mt-6">
+      <Card className="mt-6 border-l-4 border-l-brand-500">
         <div className="flex items-center justify-between p-5 pb-3">
-          <h3 className="font-bold">Active Jobs</h3>
+          <h3 className="font-bold text-brand-600 dark:text-brand-400">Active Jobs</h3>
         </div>
         <div className="divide-y divide-ink-100 dark:divide-ink-800">
+          {active.length === 0 && (
+            <p className="px-5 py-8 text-center text-sm text-ink-400">No active jobs.</p>
+          )}
           {active.slice(0, 6).map((j) => {
             const cust = customerById(customers, j.customerId);
             const assignee = staffById(staff, j.assignedStaffId);
@@ -197,6 +216,47 @@ export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
         </div>
       </Card>
 
+      <Card className="mt-6 border-l-4 border-l-emerald-500">
+        <div className="flex items-center justify-between p-5 pb-3">
+          <h3 className="font-bold text-emerald-600 dark:text-emerald-400">
+            Completed Vehicles
+          </h3>
+          <span className="text-xs text-ink-400">{delivered.length} delivered</span>
+        </div>
+        <div className="divide-y divide-ink-100 dark:divide-ink-800">
+          {delivered.length === 0 && (
+            <p className="px-5 py-8 text-center text-sm text-ink-400">No completed vehicles yet.</p>
+          )}
+          {delivered.map((job) => {
+            const customer = customerById(customers, job.customerId);
+            const completedAt = [...job.stageHistory].reverse().find((item) => item.stage === 'delivered')?.at;
+            return (
+              <button
+                key={job.id}
+                onClick={() => setActiveJob(job.id)}
+                className="grid w-full gap-3 px-5 py-4 text-left hover:bg-ink-50 dark:hover:bg-ink-800/50 sm:grid-cols-[auto_1fr_auto_auto] sm:items-center"
+              >
+                <span className="w-fit rounded-lg bg-ink-900 px-2 py-1 font-mono text-[11px] font-bold text-white dark:bg-brand-600">
+                  {job.vehicleNo}
+                </span>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{job.make} {job.model}</p>
+                  <p className="truncate text-xs text-ink-400">{customer?.name ?? 'Customer'} · Job {job.id}</p>
+                </div>
+                <div className="text-xs text-ink-400">
+                  <p>Completed</p>
+                  <p className="font-medium text-ink-600 dark:text-ink-300">{completedAt ? formatDate(completedAt) : 'Date unavailable'}</p>
+                </div>
+                <div className="text-left sm:text-right">
+                  <p className="text-sm font-bold">{formatCurrency(jobTotal(job))}</p>
+                  <StageBadge stage={job.currentStage} />
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </Card>
+
       <JobDetailDrawer jobId={activeJobId} onClose={() => setActiveJob(null)} onPrint={onPrint} />
     </div>
   );
@@ -207,13 +267,13 @@ function Metric({
   label,
   value,
   tone,
-  trend,
+  detail,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   tone: 'brand' | 'emerald' | 'sky' | 'amber';
-  trend: { dir: 'up' | 'down'; text: string };
+  detail: string;
 }) {
   const tones = {
     brand: 'bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-400',
@@ -221,28 +281,22 @@ function Metric({
     sky: 'bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400',
     amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950 dark:text-amber-400',
   };
+  const borders = {
+    brand: 'border-l-4 border-l-brand-500',
+    emerald: 'border-l-4 border-l-emerald-500',
+    sky: 'border-l-4 border-l-sky-500',
+    amber: 'border-l-4 border-l-amber-500',
+  };
   return (
-    <Card className="p-5">
+    <Card className={cn('p-5', borders[tone])}>
       <div className="flex items-center justify-between">
         <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', tones[tone])}>
           {icon}
         </span>
-        <span
-          className={cn(
-            'flex items-center gap-0.5 text-xs font-semibold',
-            trend.dir === 'up' ? 'text-emerald-600' : 'text-sky-600',
-          )}
-        >
-          {trend.dir === 'up' ? (
-            <TrendingUp className="h-3.5 w-3.5" />
-          ) : (
-            <TrendingDown className="h-3.5 w-3.5" />
-          )}
-        </span>
       </div>
       <p className="mt-4 text-2xl font-extrabold tracking-tight">{value}</p>
-      <p className="text-sm text-ink-400">{label}</p>
-      <p className="mt-1 text-[11px] text-ink-400">{trend.text}</p>
+      <p className={cn('text-sm font-semibold', tones[tone].split(' ').filter((part) => part.startsWith('text-') || part.startsWith('dark:text-')).join(' '))}>{label}</p>
+      <p className="mt-1 text-[11px] text-ink-400">{detail}</p>
     </Card>
   );
 }

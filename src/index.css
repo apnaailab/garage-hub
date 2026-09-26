@@ -6,6 +6,12 @@
   :root {
     color-scheme: light;
   }
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
   html.dark {
     color-scheme: dark;
   }
@@ -45,6 +51,12 @@
 
 /* ---------------- Print styles for Job Card ---------------- */
 @media print {
+  html,
+  body,
+  #root {
+    height: auto;
+    overflow: visible;
+  }
   body * {
     visibility: hidden;
   }

@@ -79,9 +79,9 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
   const intCount = entryPhotos.filter((p) => p.tag === 'interior').length;
   const photosOk = extCount >= MIN_EXTERIOR && intCount >= MIN_INTERIOR;
 
-  const capturePhotos = async (tag: PhotoTag, files: FileList | null) => {
-    if (!files?.length) return;
-    const photos = await Promise.all(Array.from(files).map(async (file) => ({ url: await uploadImage(file, `intake-${tag}`), tag })));
+  const capturePhotos = async (tag: PhotoTag, files: File[]) => {
+    if (!files.length) return;
+    const photos = await Promise.all(files.map(async (file) => ({ url: await uploadImage(file, `intake-${tag}`), tag })));
     setEntryPhotos((current) => [...current, ...photos]);
   };
 
@@ -444,13 +444,13 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
                   label="Exterior"
                   count={extCount}
                   min={MIN_EXTERIOR}
-                  onAdd={(files) => void capturePhotos('exterior', files)}
+                  onAdd={(files) => capturePhotos('exterior', files)}
                 />
                 <PhotoCounter
                   label="Interior"
                   count={intCount}
                   min={MIN_INTERIOR}
-                  onAdd={(files) => void capturePhotos('interior', files)}
+                  onAdd={(files) => capturePhotos('interior', files)}
                 />
               </div>
             </CardContent>
@@ -606,14 +606,41 @@ function PhotoCounter({
   label: string;
   count: number;
   min: number;
-  onAdd: (files: FileList | null) => void;
+  onAdd: (files: File[]) => Promise<void>;
 }) {
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const ok = count >= min;
+
+  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) {
+      input.value = '';
+      return;
+    }
+
+    setUploadError(null);
+    setIsUploading(true);
+    try {
+      await onAdd(files);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Photo upload failed. Please try again.');
+    } finally {
+      setIsUploading(false);
+      input.value = '';
+    }
+  };
+
   return (
     <div
       className={cn(
         'rounded-xl border p-3',
-        ok ? 'border-emerald-300 bg-emerald-50/50 dark:border-emerald-900/60 dark:bg-emerald-950/20' : 'border-ink-200 dark:border-ink-700',
+        uploadError
+          ? 'border-rose-300 bg-rose-50/50 dark:border-rose-900/60 dark:bg-rose-950/20'
+          : ok
+            ? 'border-emerald-300 bg-emerald-50/50 dark:border-emerald-900/60 dark:bg-emerald-950/20'
+            : 'border-ink-200 dark:border-ink-700',
       )}
     >
       <div className="flex items-center justify-between">
@@ -622,10 +649,20 @@ function PhotoCounter({
           {count}/{min}
         </span>
       </div>
-      <label className="mt-2 flex h-8 w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-ink-200 text-xs font-semibold text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800">
-        <Camera className="h-3.5 w-3.5" /> Add {label.toLowerCase()} photo
-        <input type="file" accept="image/*" capture="environment" multiple className="sr-only" onChange={(event) => { onAdd(event.target.files); event.target.value = ''; }} />
+      <label className={cn('relative mt-2 flex h-8 w-full overflow-hidden items-center justify-center gap-1.5 rounded-xl border border-ink-200 text-xs font-semibold text-ink-700 dark:border-ink-700 dark:text-ink-200', isUploading ? 'cursor-wait opacity-60' : 'cursor-pointer hover:bg-ink-50 dark:hover:bg-ink-800')}>
+        <Camera className={cn('h-3.5 w-3.5', isUploading && 'animate-pulse')} />
+        {isUploading ? 'Uploading photos...' : `Add ${label.toLowerCase()} photos`}
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          disabled={isUploading}
+          aria-label={`Add ${label.toLowerCase()} photos`}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0 disabled:cursor-wait"
+          onChange={handleFiles}
+        />
       </label>
+      {uploadError && <p className="mt-1.5 text-xs text-rose-600" role="alert">{uploadError}</p>}
     </div>
   );
 }

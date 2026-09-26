@@ -10,7 +10,7 @@ export function Header() {
   const toggleTheme = useStore((s) => s.toggleTheme);
 
   return (
-    <header className="no-print sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-ink-200 bg-white/80 px-3 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-900/80 sm:gap-3 sm:px-6">
+    <header className="no-print z-30 flex h-16 shrink-0 items-center gap-2 border-b border-ink-200 bg-white/80 px-3 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-900/80 sm:gap-3 sm:px-6">
       {/* mobile logo */}
       <div className="flex shrink-0 items-center gap-2 lg:hidden">
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">

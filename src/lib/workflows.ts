@@ -96,11 +96,11 @@ export const ROLE_META: Record<Role, { label: string; tagline: string; icon: str
   manager: { label: 'Workshop Manager', tagline: 'Operations command center', icon: 'LayoutDashboard' },
   receptionist: { label: 'Receptionist', tagline: 'Intake & scheduling desk', icon: 'ClipboardList' },
   driver: { label: 'Driver', tagline: 'Pickup, handover & delivery', icon: 'Truck' },
-  mechanic: { label: 'Technician', tagline: 'Your assigned tasks', icon: 'Wrench' },
+  mechanic: { label: 'Mechanic / Technician', tagline: 'Your assigned tasks', icon: 'Wrench' },
   'head-mechanic': { label: 'Head Mechanic', tagline: 'Trial & quality control', icon: 'ShieldCheck' },
   accountant: { label: 'Accountant', tagline: 'Parts approval & billing', icon: 'Receipt' },
   washing: { label: 'Washing Department', tagline: 'Final cleaning queue', icon: 'Waves' },
-  'wheel-alignment': { label: 'WA / WB Specialist', tagline: 'Alignment & balancing queue', icon: 'Gauge' },
+  'wheel-alignment': { label: 'Wheel Alignment / Balancing Specialist', tagline: 'Alignment & balancing queue', icon: 'Gauge' },
   crm: { label: 'CRM Executive', tagline: 'Reminders & relationships', icon: 'MessagesSquare' },
   customer: { label: 'Customer', tagline: 'Track your vehicle', icon: 'Car' },
 };

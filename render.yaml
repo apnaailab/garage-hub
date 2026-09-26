@@ -1,0 +1,33 @@
+services:
+  - type: web
+    name: garage-hub
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: ConnectionStrings__GarageHub
+        sync: false
+      - key: Jwt__Key
+        generateValue: true
+      - key: Database__ApplyMigrations
+        value: true
+      - key: Seed__DemoData
+        value: false
+      - key: Storage__Provider
+        value: Supabase
+      - key: Supabase__Url
+        sync: false
+      - key: Supabase__ServiceRoleKey
+        sync: false
+      - key: Supabase__StorageBucket
+        value: garage-documents
+      - key: Bootstrap__OrganizationName
+        sync: false
+      - key: Bootstrap__OwnerEmail
+        sync: false
+      - key: Bootstrap__OwnerPassword
+        sync: false

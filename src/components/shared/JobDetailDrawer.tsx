@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { JobCard, PhotoTag, StageId } from '@/types';
 import { useStore, staffById, customerById } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { StageProgress } from './StageProgress';
 import { StageDetails } from './StageDetails';
 import { PhotoGallery } from './PhotoGallery';
@@ -61,6 +62,7 @@ export function JobDetailDrawer({ jobId, onClose, onPrint }: Props) {
 }
 
 function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => void; onPrint?: (id: string) => void }) {
+  const canReviewParts = useAuthStore((s) => s.user?.role === 'accountant');
   const staff = useStore((s) => s.staff);
   const customers = useStore((s) => s.customers);
   const advanceStage = useStore((s) => s.advanceStage);
@@ -321,7 +323,7 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
                     </p>
                     <p className="text-xs text-ink-400">{formatCurrency(p.price * p.quantity)}</p>
                   </div>
-                  {p.approved === null ? (
+                  {p.approved === null && canReviewParts ? (
                     <div className="flex gap-1">
                       <Button size="sm" variant="success" onClick={() => reviewPart(job.id, p.id, true)}>
                         <Check className="h-3.5 w-3.5" />
@@ -330,6 +332,8 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
                         <XCircle className="h-3.5 w-3.5" />
                       </Button>
                     </div>
+                  ) : p.approved === null ? (
+                    <Badge tone="amber">Pending accountant</Badge>
                   ) : (
                     <Badge tone={p.approved ? 'green' : 'red'}>{p.approved ? 'Approved' : 'Rejected'}</Badge>
                   )}

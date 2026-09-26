@@ -15,7 +15,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { Input } from '@/components/ui/Input';
+import { Input, Label } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { StageProgress } from '@/components/shared/StageProgress';
 import { PhotoGallery } from '@/components/shared/PhotoGallery';
@@ -29,15 +29,16 @@ export function TaskView() {
   const user = useAuthStore((s) => s.user);
   const staff = useStore((s) => s.staff);
   const jobs = useStore((s) => s.jobs);
-  const activeStaffId = useStore((s) => s.activeStaffId);
-  const setActiveStaff = useStore((s) => s.setActiveStaff);
 
-  const staffId = staffById(staff, activeStaffId)?.id ?? user?.id ?? activeStaffId;
+  const staffId = user?.id ?? '';
   const me = staffById(staff, staffId);
   const displayName = me?.name ?? user?.name ?? 'Mechanic';
   const displayRole = me?.role ?? user?.role ?? 'mechanic';
   const myJobs = jobs.filter(
-    (j) => j.assignedStaffId === staffId && j.currentStage !== 'delivered',
+    (j) =>
+      j.assignedStaffId === staffId &&
+      j.currentStage !== 'billing' &&
+      j.currentStage !== 'delivered',
   );
 
   return (
@@ -51,27 +52,6 @@ export function TaskView() {
             {displayRole} · {myJobs.length} active task{myJobs.length !== 1 ? 's' : ''}
           </p>
         </div>
-      </div>
-
-      {/* switch mechanic (demo) */}
-      <div className="mb-5 flex gap-2 overflow-x-auto scrollbar-thin pb-1">
-        {staff
-          .filter((s) => s.role === 'mechanic' || s.role === 'painter' || s.role === 'detailer' || s.role === 'electrician')
-          .map((s) => (
-            <button
-              key={s.id}
-              onClick={() => setActiveStaff(s.id)}
-              className={cn(
-                'flex shrink-0 items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors',
-                staffId === s.id
-                  ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-950 dark:text-brand-300'
-                  : 'border-ink-200 dark:border-ink-700',
-              )}
-            >
-              <Avatar name={s.name} color={s.avatarColor} size="sm" />
-              {s.name.split(' ')[0]}
-            </button>
-          ))}
       </div>
 
       {myJobs.length === 0 ? (
@@ -103,6 +83,7 @@ function TaskCard({ job }: { job: JobCard }) {
   const [noteModal, setNoteModal] = useState(false);
   const [partName, setPartName] = useState('');
   const [partPrice, setPartPrice] = useState('');
+  const [partQuantity, setPartQuantity] = useState('1');
   const [partInStock, setPartInStock] = useState(true);
   const [noteText, setNoteText] = useState('');
 
@@ -301,6 +282,16 @@ function TaskCard({ job }: { job: JobCard }) {
             value={partPrice}
             onChange={(e) => setPartPrice(e.target.value)}
           />
+          <div>
+            <Label>Quantity</Label>
+            <Input
+              type="number"
+              min="1"
+              step="1"
+              value={partQuantity}
+              onChange={(e) => setPartQuantity(e.target.value)}
+            />
+          </div>
           <label className="flex cursor-pointer items-center gap-2 rounded-xl border border-ink-200 p-3 text-sm dark:border-ink-700">
             <input
               type="checkbox"
@@ -317,7 +308,7 @@ function TaskCard({ job }: { job: JobCard }) {
               if (partName.trim()) {
                 addPart(job.id, {
                   name: partName.trim(),
-                  quantity: 1,
+                  quantity: Math.max(1, Math.floor(Number(partQuantity) || 1)),
                   price: Number(partPrice) || 0,
                   approved: null,
                   inStock: partInStock,
@@ -325,6 +316,7 @@ function TaskCard({ job }: { job: JobCard }) {
                 });
                 setPartName('');
                 setPartPrice('');
+                setPartQuantity('1');
                 setPartInStock(true);
                 setPartModal(false);
               }

@@ -20,12 +20,12 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { StageBadge } from '@/components/shared/StatusPill';
 import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
-import { serviceById } from '@/lib/workflows';
+import { ROLE_META, serviceById } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 import { usersApi, type AuthUser, type CreateUserInput } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
-import type { StaffRole } from '@/types';
+import type { Role, StaffRole } from '@/types';
 
 const ROLE_TONE = {
   mechanic: 'blue',
@@ -34,12 +34,8 @@ const ROLE_TONE = {
   electrician: 'amber',
 } as const;
 
-const ACCOUNT_ROLES = [
-  ['owner', 'Owner'], ['manager', 'Workshop Manager'], ['receptionist', 'Receptionist'],
-  ['driver', 'Driver'], ['mechanic', 'Technician'], ['head-mechanic', 'Head Mechanic'],
-  ['accountant', 'Accountant'], ['washing', 'Washing Department'],
-  ['wheel-alignment', 'WA/WB Specialist'], ['crm', 'CRM Executive'], ['customer', 'Customer'],
-] as const;
+const ACCOUNT_ROLES = (Object.entries(ROLE_META) as [Role, (typeof ROLE_META)[Role]][])
+  .map(([role, meta]) => [role, meta.label] as const);
 
 const STAFF_ROLE_BY_ACCOUNT: Partial<Record<string, StaffRole>> = {
   mechanic: 'mechanic',
@@ -61,8 +57,10 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const [accountError, setAccountError] = useState('');
 
   useEffect(() => {
-    void usersApi.list().then(setAccounts).catch(() => setAccountError('Unable to load organization accounts.'));
-  }, []);
+    if (signedInRole === 'owner') {
+      void usersApi.list().then(setAccounts).catch(() => setAccountError('Unable to load organization accounts.'));
+    }
+  }, [signedInRole]);
 
   const totalCompleted = staff.reduce((s, st) => s + st.completedJobs, 0);
   const avgEff = staff.length ? Math.round(staff.reduce((s, st) => s + st.efficiency, 0) / staff.length) : 0;
@@ -70,23 +68,29 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
 
   return (
     <div className="mx-auto max-w-7xl p-4 sm:p-6">
-      <PageHeader title="Staff & Reports" subtitle="Organization accounts and team performance" actions={<Button onClick={() => setAccountModalOpen(true)}><UserPlus className="h-4 w-4" /> Add account</Button>} />
+      <PageHeader
+        title="Staff & Reports"
+        subtitle={signedInRole === 'owner' ? 'Organization accounts and team performance' : 'Team performance and workload'}
+        actions={signedInRole === 'owner' ? <Button onClick={() => setAccountModalOpen(true)}><UserPlus className="h-4 w-4" /> Add account</Button> : undefined}
+      />
 
-      <Card className="mb-6 p-5">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <div><h3 className="font-bold">Organization accounts</h3><p className="text-xs text-ink-400">Real sign-in accounts stored in the backend</p></div>
-          <Badge tone="blue">{accounts.length} active</Badge>
-        </div>
-        {accountError && <p className="mb-3 text-sm text-rose-600">{accountError}</p>}
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {accounts.map((account) => <div key={account.id} className="flex items-center gap-3 rounded-lg border border-ink-100 p-3 dark:border-ink-800"><Avatar name={account.name} size="sm" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{account.name}</p><p className="truncate text-xs text-ink-400">{account.email}</p></div><Badge className="ml-auto capitalize">{account.role}</Badge></div>)}
-          {!accounts.length && !accountError && <p className="text-sm text-ink-400">No accounts found.</p>}
-        </div>
-      </Card>
+      {signedInRole === 'owner' && (
+        <Card className="mb-6 p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h3 className="font-bold">Organization accounts</h3><p className="text-xs text-ink-400">Real sign-in accounts stored in the backend</p></div>
+            <Badge tone="blue">{accounts.length} active</Badge>
+          </div>
+          {accountError && <p className="mb-3 text-sm text-rose-600">{accountError}</p>}
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {accounts.map((account) => <div key={account.id} className="flex items-center gap-3 rounded-lg border border-ink-100 p-3 dark:border-ink-800"><Avatar name={account.name} size="sm" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{account.name}</p><p className="truncate text-xs text-ink-400">{account.email}</p></div><Badge className="ml-auto capitalize">{account.role}</Badge></div>)}
+            {!accounts.length && !accountError && <p className="text-sm text-ink-400">No accounts found.</p>}
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Stat icon={<Briefcase className="h-5 w-5" />} label="Team Members" value={String(staff.length)} />
-        <Stat icon={<CheckCircle2 className="h-5 w-5" />} label="Jobs Completed" value={String(totalCompleted)} />
+        <Stat icon={<CheckCircle2 className="h-5 w-5" />} label="Jobs Completed" value={String(totalCompleted)} tone="green" />
         <Stat icon={<TrendingUp className="h-5 w-5" />} label="Avg Efficiency" value={`${avgEff}%`} />
         <Stat
           icon={<Award className="h-5 w-5" />}
@@ -146,8 +150,8 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
                   </div>
 
                   <div className="mt-4 grid grid-cols-3 gap-2 text-center">
-                    <Mini label="Active" value={String(load)} />
-                    <Mini label="Done" value={String(st.completedJobs)} />
+                    <Mini label="Active" value={String(load)} tone="blue" />
+                    <Mini label="Done" value={String(st.completedJobs)} tone="green" />
                     <Mini label="Status" value={st.available ? 'Free' : 'Busy'} />
                   </div>
 
@@ -164,6 +168,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
 
       <StaffDetailModal
         staffId={selectedStaffId}
+        showFinancials={signedInRole === 'owner'}
         onClose={() => setSelectedStaffId(null)}
         onOpenJob={(id) => {
           setSelectedStaffId(null);
@@ -209,10 +214,12 @@ function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: bo
 
 function StaffDetailModal({
   staffId,
+  showFinancials,
   onClose,
   onOpenJob,
 }: {
   staffId: string | null;
+  showFinancials: boolean;
   onClose: () => void;
   onOpenJob: (jobId: string) => void;
 }) {
@@ -250,11 +257,11 @@ function StaffDetailModal({
         </div>
 
         {/* stats */}
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div className={cn('mt-5 grid grid-cols-2 gap-3', showFinancials ? 'sm:grid-cols-4' : 'sm:grid-cols-3')}>
           <StatMini icon={<TrendingUp className="h-4 w-4" />} label="Efficiency" value={`${member.efficiency}%`} />
           <StatMini icon={<Clock className="h-4 w-4" />} label="Active now" value={String(active)} />
           <StatMini icon={<Car className="h-4 w-4" />} label="Cars worked" value={String(uniqueCars)} />
-          <StatMini icon={<IndianRupee className="h-4 w-4" />} label="Revenue" value={formatCurrency(revenue)} />
+          {showFinancials && <StatMini icon={<IndianRupee className="h-4 w-4" />} label="Revenue" value={formatCurrency(revenue)} />}
         </div>
 
         {/* job history */}
@@ -313,25 +320,30 @@ function StatMini({ icon, label, value }: { icon: React.ReactNode; label: string
   );
 }
 
-function Stat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
+function Stat({ icon, label, value, tone = 'blue' }: { icon: React.ReactNode; label: string; value: string; tone?: 'blue' | 'green' }) {
   return (
-    <Card className="flex items-center gap-3 p-5">
-      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-400">
+    <Card className={cn('flex items-center gap-3 border-l-4 p-5', tone === 'green' ? 'border-l-emerald-500' : 'border-l-brand-500')}>
+      <span className={cn('flex h-10 w-10 items-center justify-center rounded-xl', tone === 'green' ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950 dark:text-emerald-400' : 'bg-brand-50 text-brand-600 dark:bg-brand-950 dark:text-brand-400')}>
         {icon}
       </span>
       <div>
         <p className="text-xl font-extrabold tracking-tight">{value}</p>
-        <p className="text-xs text-ink-400">{label}</p>
+        <p className={cn('text-xs font-semibold', tone === 'green' ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-600 dark:text-brand-400')}>{label}</p>
       </div>
     </Card>
   );
 }
 
-function Mini({ label, value }: { label: string; value: string }) {
+function Mini({ label, value, tone = 'gray' }: { label: string; value: string; tone?: 'blue' | 'green' | 'gray' }) {
+  const tones = {
+    blue: 'bg-brand-50 text-brand-700 dark:bg-brand-950/60 dark:text-brand-300',
+    green: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300',
+    gray: 'bg-ink-50 text-ink-700 dark:bg-ink-800/60 dark:text-ink-200',
+  };
   return (
-    <div className="rounded-xl bg-ink-50 py-2 dark:bg-ink-800/60">
+    <div className={cn('rounded-xl py-2', tones[tone])}>
       <p className="text-sm font-bold">{value}</p>
-      <p className="text-[10px] uppercase tracking-wide text-ink-400">{label}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wide opacity-75">{label}</p>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   ShieldCheck,
   CreditCard,
@@ -53,6 +54,7 @@ export function Billing() {
 }
 
 function BillingCard({ job }: { job: JobCard }) {
+  const [selectedPaymentMode, setSelectedPaymentMode] = useState<JobCard['paymentMode'] | ''>(job.paymentMode ?? '');
   const customers = useStore((s) => s.customers);
   const markPaid = useStore((s) => s.markPaid);
   const issueGatePass = useStore((s) => s.issueGatePass);
@@ -129,8 +131,8 @@ function BillingCard({ job }: { job: JobCard }) {
           <div>
             <label className="mb-1 block text-xs font-semibold text-ink-500">Payment mode</label>
             <Select
-              value={job.paymentMode ?? ''}
-              onChange={(e) => markPaid(job.id, e.target.value as JobCard['paymentMode'])}
+              value={selectedPaymentMode}
+              onChange={(e) => setSelectedPaymentMode(e.target.value as JobCard['paymentMode'] | '')}
               disabled={job.paid}
             >
               <option value="">Select…</option>
@@ -146,7 +148,11 @@ function BillingCard({ job }: { job: JobCard }) {
                 <Check className="h-4 w-4" /> Paid{job.paymentMode ? ` · ${job.paymentMode.toUpperCase()}` : ''}
               </div>
             ) : (
-              <Button className="w-full" onClick={() => markPaid(job.id, job.paymentMode ?? 'cash')}>
+              <Button
+                className="w-full"
+                disabled={!selectedPaymentMode}
+                onClick={() => selectedPaymentMode && markPaid(job.id, selectedPaymentMode)}
+              >
                 <CreditCard className="h-4 w-4" /> Mark Paid
               </Button>
             )}

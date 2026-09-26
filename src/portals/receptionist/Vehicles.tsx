@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Car, Search, History, Clock, ChevronRight, Gauge, User, Wrench } from 'lucide-react';
 import { useStore, customerById, staffById } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { PageHeader } from '@/components/layout/AppShell';
 import { Card } from '@/components/ui/Card';
 import { Badge } from '@/components/ui/Badge';
@@ -13,6 +14,7 @@ import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 
 export function Vehicles({ onPrint }: { onPrint: (id: string) => void }) {
+  const canViewFinancials = useAuthStore((s) => ['owner', 'accountant'].includes(s.user?.role ?? ''));
   const jobs = useStore((s) => s.jobs);
   const customers = useStore((s) => s.customers);
   const staff = useStore((s) => s.staff);
@@ -115,11 +117,13 @@ export function Vehicles({ onPrint }: { onPrint: (id: string) => void }) {
                   {/* full vehicle summary */}
                   <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4">
                     <Detail label="Owner" value={cust?.name ?? 'Unknown'} sub={cust?.phone} />
-                    <Detail
-                      label="Lifetime spend"
-                      value={formatCurrency(v.jobs.reduce((s, j) => s + jobTotal(j), 0))}
-                      sub={`${v.visits} visit${v.visits > 1 ? 's' : ''}`}
-                    />
+                    {canViewFinancials && (
+                      <Detail
+                        label="Lifetime spend"
+                        value={formatCurrency(v.jobs.reduce((s, j) => s + jobTotal(j), 0))}
+                        sub={`${v.visits} visit${v.visits > 1 ? 's' : ''}`}
+                      />
+                    )}
                     <Detail
                       label="First / last visit"
                       value={formatDate(v.firstVisitAt)}

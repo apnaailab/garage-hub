@@ -11,7 +11,7 @@ export function Sidebar() {
   const items = NAV[role];
 
   return (
-    <aside className="no-print hidden w-64 shrink-0 flex-col border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900 lg:flex">
+    <aside className="no-print hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900 lg:flex">
       <div className="flex h-16 items-center gap-2.5 px-6">
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg shadow-brand-600/30">
           <Wrench className="h-5 w-5" />
@@ -24,7 +24,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="flex-1 space-y-1 px-3 py-4">
+      <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-4">
         <p className="px-3 pb-2 text-[10px] font-bold uppercase tracking-wider text-ink-400">
           {ROLE_META[role].label}
         </p>

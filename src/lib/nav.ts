@@ -23,7 +23,9 @@ export interface NavItem {
 
 export const NAV: Record<Role, NavItem[]> = {
   owner: [
-    { page: 'operations', label: 'Command Center', icon: Activity },
+    { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { page: 'board', label: 'Service Board', icon: KanbanSquare },
+    { page: 'vehicles', label: 'Vehicle History', icon: Car },
     { page: 'staff', label: 'Staff & Access', icon: Users },
   ],
   manager: [

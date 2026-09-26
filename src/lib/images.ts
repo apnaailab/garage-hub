@@ -9,8 +9,11 @@ export async function uploadImage(file: File, type: string, maxDimension = 1600)
   const sourceUrl = URL.createObjectURL(file);
   try {
     const image = new Image();
-    image.src = sourceUrl;
-    await image.decode();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('The selected image cannot be read.'));
+      image.src = sourceUrl;
+    });
     const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));

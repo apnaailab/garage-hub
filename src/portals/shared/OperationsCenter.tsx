@@ -6,6 +6,7 @@ import { PageHeader } from '@/components/layout/AppShell';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { ApiStageBadge } from '@/components/shared/StatusPill';
 
 interface DashboardData {
   role: string;
@@ -109,7 +110,7 @@ export function OperationsCenter() {
                   <div key={job.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-ink-100 p-3 dark:border-ink-800">
                     <span className="font-mono text-sm font-bold">{job.number}</span>
                     <span className="text-xs text-ink-400">{job.intakeMode}</span>
-                    <Badge tone="amber" className="ml-auto">{job.stage.split('-').join(' ')}</Badge>
+                    <span className="ml-auto"><ApiStageBadge stage={job.stage} /></span>
                   </div>
                 ))}
               </div>
@@ -157,7 +158,12 @@ export function OperationsCenter() {
         <CardContent className="pt-5">
           <h2 className="mb-4 font-bold">Workshop status</h2>
           <div className="flex flex-wrap gap-2">
-            {(dashboard?.byStage ?? []).map((item) => <Badge key={item.stage} tone="blue">{item.stage.split('-').join(' ')} · {item.count}</Badge>)}
+            {(dashboard?.byStage ?? []).map((item) => (
+              <span key={item.stage} className="inline-flex items-center gap-1">
+                <ApiStageBadge stage={item.stage} />
+                <span className="text-xs font-bold text-ink-500">{item.count}</span>
+              </span>
+            ))}
           </div>
         </CardContent>
       </Card>

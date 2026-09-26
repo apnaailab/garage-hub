@@ -14,24 +14,24 @@ The API accesses Storage using the service role and performs authorization itsel
 
 ## 2. Configure the application host
 
-Deploy the root `Dockerfile` to Azure Container Apps, Azure App Service, Render, Fly.io, or another container platform. Configure these environment variables:
+The selected application host is Render. Create a new Blueprint in Render from the
+GitHub repository; the root `render.yaml` builds the root `Dockerfile`, configures
+the health check, and generates the JWT signing key. Enter these secret values when
+Render prompts for them:
 
 ```text
 ConnectionStrings__GarageHub=Host=<pooler-host>;Port=5432;Database=postgres;Username=postgres.<project-ref>;Password=<password>;SSL Mode=Require
-Jwt__Key=<at-least-32-random-characters>
-AllowedOrigins__0=https://<application-domain>
-Database__ApplyMigrations=true
-Seed__DemoData=false
-Storage__Provider=Supabase
 Supabase__Url=https://<project-ref>.supabase.co
 Supabase__ServiceRoleKey=<service-role-key>
-Supabase__StorageBucket=garage-documents
 Bootstrap__OrganizationName=<testing-organization-name>
 Bootstrap__OwnerEmail=<first-owner-email>
 Bootstrap__OwnerPassword=<strong-first-owner-password>
 ```
 
-The container listens on port `8080`. The frontend calls `/api` on the same origin, so no public database credentials are needed in the browser.
+The Blueprint supplies the non-secret production settings. The container listens on
+port `8080`. The frontend calls `/api` on the same origin, so no CORS setting or
+public database credentials are needed in the browser. Configure `AllowedOrigins__0`
+only when a separate trusted web origin must call the API.
 
 On the first startup, EF Core applies the migrations and creates only the configured owner when the database is empty. After the first owner exists, remove the three `Bootstrap__*` secrets from the host. Demo users, customers, vehicles, jobs, and inventory are disabled in production.
 
@@ -50,8 +50,10 @@ Run these checks against the deployed host:
 
 ```bash
 curl -i https://<application-domain>/api/health
-curl -i https://<application-domain>/swagger/index.html
 ```
+
+Swagger is disabled in production by default. Set `Swagger__Enabled=true` temporarily
+only when production API exploration is required.
 
 Then verify:
 

@@ -74,7 +74,7 @@ interface GarageState extends PortalData {
 }
 
 const DEFAULT_PAGE: Record<Role, string> = {
-  owner: 'operations',
+  owner: 'dashboard',
   manager: 'dashboard',
   receptionist: 'intake',
   driver: 'operations',

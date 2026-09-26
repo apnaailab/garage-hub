@@ -5,11 +5,11 @@ import { BottomBar } from './BottomBar';
 
 export function AppShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-screen bg-ink-50 dark:bg-ink-950">
+    <div className="flex h-screen overflow-hidden bg-ink-50 dark:bg-ink-950">
       <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Header />
-        <main className="flex-1 pb-24 lg:pb-0">{children}</main>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-24 lg:pb-0">{children}</main>
         <BottomBar />
       </div>
     </div>
