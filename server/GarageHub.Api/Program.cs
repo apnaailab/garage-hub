@@ -205,7 +205,7 @@ api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
 api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
     if (!CanAssignRole(principal, request.Role)) return Results.Forbid();
-    if (request.Password.Length < 12) return Results.BadRequest(new { error = "Password must contain at least 12 characters." });
+    if (request.Password.Length < 8) return Results.BadRequest(new { error = "Password must contain at least 8 characters." });
     var email = request.Email.Trim().ToLowerInvariant();
     if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
     var user = new UserAccount
@@ -251,7 +251,7 @@ api.MapPut("/users/{id:guid}/password", async (Guid id, SetUserPasswordRequest r
 {
     var user = await ManageableUser(id, principal, db);
     if (user is null) return Results.NotFound();
-    if (request.Password.Length < 12) return Results.BadRequest(new { error = "Password must contain at least 12 characters." });
+    if (request.Password.Length < 8) return Results.BadRequest(new { error = "Password must contain at least 8 characters." });
     user.PasswordHash = Passwords.Hash(request.Password);
     user.UpdatedAt = DateTimeOffset.UtcNow;
     Audit(db, principal, "reset-password", "user", user.Id, user.Role);

@@ -125,8 +125,8 @@ public static class SeedData
         var ownerPassword = useDemoData ? "Demo@123" : configuration["Bootstrap:OwnerPassword"];
         if (string.IsNullOrWhiteSpace(organizationName) || string.IsNullOrWhiteSpace(ownerEmail) || string.IsNullOrWhiteSpace(ownerPassword))
             throw new InvalidOperationException("An empty production database requires Bootstrap__OrganizationName, Bootstrap__OwnerEmail and Bootstrap__OwnerPassword.");
-        if (!useDemoData && ownerPassword.Length < 12)
-            throw new InvalidOperationException("Bootstrap__OwnerPassword must contain at least 12 characters.");
+        if (!useDemoData && ownerPassword.Length < 8)
+            throw new InvalidOperationException("Bootstrap__OwnerPassword must contain at least 8 characters.");
 
         var organization = new Organization
         {
