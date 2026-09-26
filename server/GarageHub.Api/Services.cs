@@ -140,10 +140,14 @@ public static class SeedData
             db.Users.Add(new UserAccount
             {
                 OrganizationId = organization.Id,
-                Name = "Organization Owner",
+                Name = ownerEmail.Trim().Equals(AppRoles.ProtectedAdminEmail, StringComparison.OrdinalIgnoreCase)
+                    ? "System Admin"
+                    : "Organization Owner",
                 Email = ownerEmail.Trim().ToLowerInvariant(),
                 Phone = string.Empty,
-                Role = AppRoles.Owner,
+                Role = ownerEmail.Trim().Equals(AppRoles.ProtectedAdminEmail, StringComparison.OrdinalIgnoreCase)
+                    ? AppRoles.Admin
+                    : AppRoles.Owner,
                 PasswordHash = Passwords.Hash(ownerPassword)
             });
             await db.SaveChangesAsync();

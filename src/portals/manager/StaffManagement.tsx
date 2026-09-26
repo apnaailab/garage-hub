@@ -9,6 +9,10 @@ import {
   Clock,
   ChevronRight,
   UserPlus,
+  KeyRound,
+  Pencil,
+  Power,
+  RotateCcw,
 } from 'lucide-react';
 import { useStore, customerById, staffById } from '@/store/useStore';
 import { PageHeader } from '@/components/layout/AppShell';
@@ -23,7 +27,7 @@ import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
 import { ROLE_META, serviceById } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import { usersApi, type AuthUser, type CreateUserInput } from '@/lib/api';
+import { usersApi, type AuthUser, type CreateUserInput, type UpdateUserInput } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Role, StaffRole } from '@/types';
 
@@ -54,13 +58,32 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AuthUser[]>([]);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<AuthUser | null>(null);
+  const [passwordAccount, setPasswordAccount] = useState<AuthUser | null>(null);
   const [accountError, setAccountError] = useState('');
+  const canManageAccounts = signedInRole === 'admin' || signedInRole === 'owner';
+  const isAdmin = signedInRole === 'admin';
 
   useEffect(() => {
-    if (signedInRole === 'owner') {
+    if (canManageAccounts) {
       void usersApi.list().then(setAccounts).catch(() => setAccountError('Unable to load organization accounts.'));
     }
-  }, [signedInRole]);
+  }, [canManageAccounts]);
+
+  const replaceAccount = (updated: AuthUser) => {
+    setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account));
+  };
+
+  const toggleAccount = async (account: AuthUser) => {
+    const action = account.active ? 'deactivate' : 'reactivate';
+    if (!window.confirm(`${action[0].toUpperCase()}${action.slice(1)} ${account.name}'s account?`)) return;
+    setAccountError('');
+    try {
+      replaceAccount(await usersApi.setActive(account.id, !account.active));
+    } catch {
+      setAccountError(`Unable to ${action} this account.`);
+    }
+  };
 
   const totalCompleted = staff.reduce((s, st) => s + st.completedJobs, 0);
   const avgEff = staff.length ? Math.round(staff.reduce((s, st) => s + st.efficiency, 0) / staff.length) : 0;
@@ -70,19 +93,32 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
     <div className="mx-auto max-w-7xl p-4 sm:p-6">
       <PageHeader
         title="Staff & Reports"
-        subtitle={signedInRole === 'owner' ? 'Organization accounts and team performance' : 'Team performance and workload'}
-        actions={signedInRole === 'owner' ? <Button onClick={() => setAccountModalOpen(true)}><UserPlus className="h-4 w-4" /> Add account</Button> : undefined}
+        subtitle={canManageAccounts ? 'Organization accounts and team performance' : 'Team performance and workload'}
+        actions={canManageAccounts ? <Button onClick={() => setAccountModalOpen(true)}><UserPlus className="h-4 w-4" /> Add account</Button> : undefined}
       />
 
-      {signedInRole === 'owner' && (
+      {canManageAccounts && (
         <Card className="mb-6 p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div><h3 className="font-bold">Organization accounts</h3><p className="text-xs text-ink-400">Real sign-in accounts stored in the backend</p></div>
-            <Badge tone="blue">{accounts.length} active</Badge>
+            <Badge tone="blue">{accounts.filter((account) => account.active).length} active</Badge>
           </div>
           {accountError && <p className="mb-3 text-sm text-rose-600">{accountError}</p>}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {accounts.map((account) => <div key={account.id} className="flex items-center gap-3 rounded-lg border border-ink-100 p-3 dark:border-ink-800"><Avatar name={account.name} size="sm" /><div className="min-w-0"><p className="truncate text-sm font-semibold">{account.name}</p><p className="truncate text-xs text-ink-400">{account.email}</p></div><Badge className="ml-auto capitalize">{account.role}</Badge></div>)}
+            {accounts.map((account) => (
+              <div key={account.id} className={cn('border border-ink-100 p-3 dark:border-ink-800', !account.active && 'opacity-60')}>
+                <div className="flex items-center gap-3">
+                  <Avatar name={account.name} size="sm" />
+                  <div className="min-w-0 flex-1"><p className="truncate text-sm font-semibold">{account.name}</p><p className="truncate text-xs text-ink-400">{account.email}</p></div>
+                  <Badge className="capitalize" tone={account.active ? 'blue' : 'gray'}>{account.active ? account.role : 'Inactive'}</Badge>
+                </div>
+                <div className="mt-3 flex justify-end gap-1">
+                  <Button size="icon" variant="ghost" className="h-8 w-8" title="Edit account" aria-label={`Edit ${account.name}`} onClick={() => setEditingAccount(account)}><Pencil className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" title="Set temporary password" aria-label={`Set password for ${account.name}`} onClick={() => setPasswordAccount(account)}><KeyRound className="h-4 w-4" /></Button>
+                  <Button size="icon" variant="ghost" className="h-8 w-8" title={account.active ? 'Deactivate account' : 'Reactivate account'} aria-label={`${account.active ? 'Deactivate' : 'Reactivate'} ${account.name}`} onClick={() => void toggleAccount(account)}>{account.active ? <Power className="h-4 w-4 text-rose-600" /> : <RotateCcw className="h-4 w-4 text-emerald-600" />}</Button>
+                </div>
+              </div>
+            ))}
             {!accounts.length && !accountError && <p className="text-sm text-ink-400">No accounts found.</p>}
           </div>
         </Card>
@@ -168,7 +204,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
 
       <StaffDetailModal
         staffId={selectedStaffId}
-        showFinancials={signedInRole === 'owner'}
+        showFinancials={signedInRole === 'admin' || signedInRole === 'owner'}
         onClose={() => setSelectedStaffId(null)}
         onOpenJob={(id) => {
           setSelectedStaffId(null);
@@ -178,7 +214,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
       <JobDetailDrawer jobId={activeJobId} onClose={() => setActiveJob(null)} onPrint={onPrint} />
       <CreateAccountModal
         open={accountModalOpen}
-        allowOwner={signedInRole === 'owner'}
+        allowOwner={isAdmin}
         onClose={() => setAccountModalOpen(false)}
         onCreated={(account) => {
           setAccounts((current) => [...current, account]);
@@ -187,6 +223,8 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
           setAccountModalOpen(false);
         }}
       />
+      <EditAccountModal account={editingAccount} allowOwner={isAdmin} onClose={() => setEditingAccount(null)} onUpdated={(account) => { replaceAccount(account); setEditingAccount(null); }} />
+      <PasswordModal account={passwordAccount} onClose={() => setPasswordAccount(null)} />
     </div>
   );
 }
@@ -209,7 +247,45 @@ function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: bo
       setSaving(false);
     }
   };
-  return <Modal open={open} onClose={onClose} title="Add organization account" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div><div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div><div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div><div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => allowOwner || role !== 'owner').map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div><div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={12} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create account'}</Button></div></form></Modal>;
+  return <Modal open={open} onClose={onClose} title="Add organization account" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div><div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div><div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div><div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => role !== 'admin' && (allowOwner || role !== 'owner')).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div><div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={12} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create account'}</Button></div></form></Modal>;
+}
+
+function EditAccountModal({ account, allowOwner, onClose, onUpdated }: { account: AuthUser | null; allowOwner: boolean; onClose: () => void; onUpdated: (user: AuthUser) => void }) {
+  const [form, setForm] = useState<UpdateUserInput>({ name: '', email: '', phone: '', role: 'mechanic' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    if (account) setForm({ name: account.name, email: account.email, phone: account.phone, role: account.role });
+    setError('');
+  }, [account]);
+  const update = (patch: Partial<UpdateUserInput>) => setForm((current) => ({ ...current, ...patch }));
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!account) return;
+    setSaving(true);
+    setError('');
+    try { onUpdated(await usersApi.update(account.id, form)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Account update failed.'); }
+    finally { setSaving(false); }
+  };
+  return <Modal open={!!account} onClose={onClose} title="Edit account" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div><div><Label>Email</Label><Input type="email" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div><div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div><div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => role !== 'admin' && (allowOwner || role !== 'owner')).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</Button></div></form></Modal>;
+}
+
+function PasswordModal({ account, onClose }: { account: AuthUser | null; onClose: () => void }) {
+  const [password, setPassword] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { setPassword(''); setError(''); }, [account]);
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!account) return;
+    setSaving(true);
+    setError('');
+    try { await usersApi.setPassword(account.id, password); onClose(); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : 'Password update failed.'); }
+    finally { setSaving(false); }
+  };
+  return <Modal open={!!account} onClose={onClose} title="Set temporary password" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><p className="text-sm text-ink-500">Set a new password for {account?.name}. It takes effect immediately.</p><div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required /></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Saving…' : 'Set password'}</Button></div></form></Modal>;
 }
 
 function StaffDetailModal({

@@ -7,6 +7,7 @@ export interface AuthUser {
   email: string;
   phone: string;
   role: string;
+  active: boolean;
   photoUrl?: string;
   drivingLicensePhotoUrl?: string;
 }
@@ -60,9 +61,14 @@ export interface CreateUserInput {
   password: string;
 }
 
+export type UpdateUserInput = Omit<CreateUserInput, 'password'>;
+
 export const usersApi = {
   list: () => api<AuthUser[]>('/users'),
   create: (input: CreateUserInput) => api<AuthUser>('/users', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: string, input: UpdateUserInput) => api<AuthUser>(`/users/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+  setActive: (id: string, active: boolean) => api<AuthUser>(`/users/${id}/active`, { method: 'PUT', body: JSON.stringify({ active }) }),
+  setPassword: (id: string, password: string) => api<void>(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
 };
 
 interface UploadedDocument {

@@ -92,6 +92,7 @@ export function serviceById(id: string): ServiceType | undefined {
 // ---------------------------------------------------------------------------
 
 export const ROLE_META: Record<Role, { label: string; tagline: string; icon: string }> = {
+  admin: { label: 'Admin', tagline: 'Protected account administration', icon: 'ShieldCheck' },
   owner: { label: 'Owner', tagline: 'Approvals, audit & profitability', icon: 'Crown' },
   manager: { label: 'Workshop Manager', tagline: 'Operations command center', icon: 'LayoutDashboard' },
   receptionist: { label: 'Receptionist', tagline: 'Intake & scheduling desk', icon: 'ClipboardList' },

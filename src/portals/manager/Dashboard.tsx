@@ -30,7 +30,7 @@ const PIPELINE_TONE: Record<StageId, { bar: string; label: string }> = {
 };
 
 export function Dashboard({ onPrint }: { onPrint: (id: string) => void }) {
-  const canViewFinancials = useAuthStore((s) => s.user?.role === 'owner');
+  const canViewFinancials = useAuthStore((s) => ['admin', 'owner'].includes(s.user?.role ?? ''));
   const jobs = useStore((s) => s.jobs);
   const staff = useStore((s) => s.staff);
   const customers = useStore((s) => s.customers);

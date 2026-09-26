@@ -3,6 +3,7 @@ import type { LucideIcon } from 'lucide-react';
 import { Crown, LayoutDashboard, ClipboardList, Truck, Wrench, ShieldCheck, Receipt, Waves, Gauge, MessagesSquare, Car } from 'lucide-react';
 
 export const ROLE_LIST: { role: Role; icon: LucideIcon }[] = [
+  { role: 'admin', icon: ShieldCheck },
   { role: 'owner', icon: Crown },
   { role: 'manager', icon: LayoutDashboard },
   { role: 'receptionist', icon: ClipboardList },

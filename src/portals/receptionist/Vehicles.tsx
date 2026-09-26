@@ -14,7 +14,7 @@ import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
 
 export function Vehicles({ onPrint }: { onPrint: (id: string) => void }) {
-  const canViewFinancials = useAuthStore((s) => ['owner', 'accountant'].includes(s.user?.role ?? ''));
+  const canViewFinancials = useAuthStore((s) => ['admin', 'owner', 'accountant'].includes(s.user?.role ?? ''));
   const jobs = useStore((s) => s.jobs);
   const customers = useStore((s) => s.customers);
   const staff = useStore((s) => s.staff);

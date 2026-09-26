@@ -2,6 +2,8 @@ namespace GarageHub.Api;
 
 public static class AppRoles
 {
+    public const string ProtectedAdminEmail = "apnaailab@gmail.com";
+    public const string Admin = "admin";
     public const string Owner = "owner";
     public const string Manager = "manager";
     public const string Receptionist = "receptionist";
@@ -15,11 +17,11 @@ public static class AppRoles
     public const string Customer = "customer";
 
     public static readonly string[] All =
-    [Owner, Manager, Receptionist, Driver, Mechanic, HeadMechanic, Accountant, Washing, WheelAlignment, Crm, Customer];
+    [Admin, Owner, Manager, Receptionist, Driver, Mechanic, HeadMechanic, Accountant, Washing, WheelAlignment, Crm, Customer];
 
-    public const string Leadership = Owner + "," + Manager;
-    public const string CustomerData = Owner + "," + Manager + "," + Accountant;
-    public const string Workshop = Owner + "," + Manager + "," + Receptionist + "," + Mechanic + "," + HeadMechanic;
+    public const string Leadership = Admin + "," + Owner + "," + Manager;
+    public const string CustomerData = Admin + "," + Owner + "," + Manager + "," + Accountant;
+    public const string Workshop = Admin + "," + Owner + "," + Manager + "," + Receptionist + "," + Mechanic + "," + HeadMechanic;
 }
 
 public abstract class Entity
@@ -238,8 +240,11 @@ public sealed class AuditEvent : Entity
 
 public record LoginRequest(string Email, string Password);
 public record CreateUserRequest(string Name, string Email, string Phone, string Role, string Password);
+public record UpdateUserRequest(string Name, string Email, string Phone, string Role);
+public record SetUserActiveRequest(bool Active);
+public record SetUserPasswordRequest(string Password);
 public record LoginResponse(string Token, UserView User);
-public record UserView(Guid Id, Guid OrganizationId, string Name, string Email, string Phone, string Role, string? PhotoUrl, string? DrivingLicensePhotoUrl);
+public record UserView(Guid Id, Guid OrganizationId, string Name, string Email, string Phone, string Role, bool Active, string? PhotoUrl, string? DrivingLicensePhotoUrl);
 public record WorkflowStateRequest(long BaseVersion, System.Text.Json.JsonElement Data);
 public record WorkflowStateResponse(long Version, System.Text.Json.JsonElement Data, DateTimeOffset UpdatedAt, Guid UpdatedById);
 public record AttendanceRequest(string EventType);

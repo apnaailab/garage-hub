@@ -22,6 +22,12 @@ export interface NavItem {
 }
 
 export const NAV: Record<Role, NavItem[]> = {
+  admin: [
+    { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { page: 'board', label: 'Service Board', icon: KanbanSquare },
+    { page: 'vehicles', label: 'Vehicle History', icon: Car },
+    { page: 'staff', label: 'Staff & Access', icon: Users },
+  ],
   owner: [
     { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { page: 'board', label: 'Service Board', icon: KanbanSquare },

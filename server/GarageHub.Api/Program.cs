@@ -97,7 +97,7 @@ app.MapPost("/api/auth/login", async (LoginRequest request, AppDbContext db) =>
         claims: claims,
         expires: DateTime.UtcNow.AddHours(8),
         signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
-    var view = new UserView(user.Id, user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.PhotoUrl, user.DrivingLicensePhotoUrl);
+    var view = ToView(user);
     return Results.Ok(new LoginResponse(new JwtSecurityTokenHandler().WriteToken(token), view));
 });
 
@@ -194,16 +194,17 @@ api.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>
 api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var organizationId = OrganizationId(principal);
-    return Results.Ok(await db.Users.Where(x => x.OrganizationId == organizationId && x.Active)
+    var users = db.Users.Where(x => x.OrganizationId == organizationId && x.Role != AppRoles.Admin);
+    if (principal.IsInRole(AppRoles.Owner)) users = users.Where(x => x.Role != AppRoles.Owner);
+    return Results.Ok(await users
         .OrderBy(x => x.Role).ThenBy(x => x.Name)
-        .Select(x => new UserView(x.Id, x.OrganizationId, x.Name, x.Email, x.Phone, x.Role, x.PhotoUrl, x.DrivingLicensePhotoUrl)).ToListAsync());
+        .Select(x => new UserView(x.Id, x.OrganizationId, x.Name, x.Email, x.Phone, x.Role, x.Active, x.PhotoUrl, x.DrivingLicensePhotoUrl)).ToListAsync());
 })
-    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
 
 api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    if (!AppRoles.All.Contains(request.Role)) return Results.BadRequest(new { error = "Unknown role." });
-    if (request.Role == AppRoles.Owner && !principal.IsInRole(AppRoles.Owner)) return Results.Forbid();
+    if (!CanAssignRole(principal, request.Role)) return Results.Forbid();
     if (request.Password.Length < 12) return Results.BadRequest(new { error = "Password must contain at least 12 characters." });
     var email = request.Email.Trim().ToLowerInvariant();
     if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
@@ -216,7 +217,47 @@ api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principa
     Audit(db, principal, "create", "user", user.Id, user.Role);
     await db.SaveChangesAsync();
     return Results.Created($"/api/users/{user.Id}", ToView(user));
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
+
+api.MapPut("/users/{id:guid}", async (Guid id, UpdateUserRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var user = await ManageableUser(id, principal, db);
+    if (user is null) return Results.NotFound();
+    if (!CanAssignRole(principal, request.Role)) return Results.Forbid();
+    var email = request.Email.Trim().ToLowerInvariant();
+    if (await db.Users.AnyAsync(x => x.Id != id && x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
+    user.Name = request.Name.Trim();
+    user.Email = email;
+    user.Phone = request.Phone.Trim();
+    user.Role = request.Role;
+    user.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, "update", "user", user.Id, user.Role);
+    await db.SaveChangesAsync();
+    return Results.Ok(ToView(user));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
+
+api.MapPut("/users/{id:guid}/active", async (Guid id, SetUserActiveRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var user = await ManageableUser(id, principal, db);
+    if (user is null) return Results.NotFound();
+    user.Active = request.Active;
+    user.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, request.Active ? "reactivate" : "deactivate", "user", user.Id, user.Role);
+    await db.SaveChangesAsync();
+    return Results.Ok(ToView(user));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
+
+api.MapPut("/users/{id:guid}/password", async (Guid id, SetUserPasswordRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var user = await ManageableUser(id, principal, db);
+    if (user is null) return Results.NotFound();
+    if (request.Password.Length < 12) return Results.BadRequest(new { error = "Password must contain at least 12 characters." });
+    user.PasswordHash = Passwords.Hash(request.Password);
+    user.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, "reset-password", "user", user.Id, user.Role);
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
 
 api.MapGet("/dashboard", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -280,7 +321,7 @@ api.MapPost("/jobs", async (Job job, ClaimsPrincipal principal, AppDbContext db)
     Audit(db, principal, "create", "job", job.Id, job.Number);
     await db.SaveChangesAsync();
     return Results.Created($"/api/jobs/{job.Id}", job);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
 
 api.MapPatch("/jobs/{id:guid}/stage", async (Guid id, JobStageRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -314,7 +355,7 @@ api.MapPost("/jobs/{id:guid}/estimate-action", async (Guid id, EstimateActionReq
             if (!string.IsNullOrWhiteSpace(request.SelectedItemsJson)) job.ServicesJson = request.SelectedItemsJson;
             job.Stage = "pending-for-owner-approval";
             break;
-        case "owner-approve" when role == AppRoles.Owner && job.Stage == "pending-for-owner-approval" && job.CustomerEstimateApproved:
+        case "owner-approve" when role is AppRoles.Admin or AppRoles.Owner && job.Stage == "pending-for-owner-approval" && job.CustomerEstimateApproved:
             job.OwnerEstimateApproved = true;
             job.Stage = "pending-from-technician";
             break;
@@ -333,7 +374,7 @@ api.MapGet("/customers", async (ClaimsPrincipal principal, AppDbContext db) =>
     var organizationId = OrganizationId(principal);
     return Results.Ok(await db.Customers.AsNoTracking().Where(x => x.OrganizationId == organizationId).OrderBy(x => x.Name).ToListAsync());
 })
-    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
 api.MapGet("/vehicles", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var organizationId = OrganizationId(principal);
@@ -345,7 +386,7 @@ api.MapGet("/inventory", async (ClaimsPrincipal principal, AppDbContext db) =>
     var organizationId = OrganizationId(principal);
     return Results.Ok(await db.InventoryParts.AsNoTracking().Where(x => x.OrganizationId == organizationId).OrderBy(x => x.Name).ToListAsync());
 })
-    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Mechanic, AppRoles.HeadMechanic));
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Mechanic, AppRoles.HeadMechanic));
 api.MapPost("/inventory", async (InventoryPart part, ClaimsPrincipal principal, AppDbContext db) =>
 {
     part.Id = Guid.NewGuid();
@@ -354,7 +395,7 @@ api.MapPost("/inventory", async (InventoryPart part, ClaimsPrincipal principal, 
     Audit(db, principal, "create", "inventory-part", part.Id, part.Sku);
     await db.SaveChangesAsync();
     return Results.Created($"/api/inventory/{part.Id}", part);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Accountant));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Accountant));
 
 api.MapPatch("/inventory/{id:guid}", async (Guid id, InventoryPart request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -371,7 +412,7 @@ api.MapPatch("/inventory/{id:guid}", async (Guid id, InventoryPart request, Clai
     Audit(db, principal, "update", "inventory-part", id, $"quantity={part.Quantity}");
     await db.SaveChangesAsync();
     return Results.Ok(part);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Accountant));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Accountant));
 
 api.MapGet("/pickups", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -381,7 +422,7 @@ api.MapGet("/pickups", async (ClaimsPrincipal principal, AppDbContext db) =>
     if (principal.IsInRole(AppRoles.Driver)) query = query.Where(x => x.DriverId == userId);
     var result = await query.ToListAsync();
     return Results.Ok(result.OrderBy(x => x.ScheduledAt));
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
 
 api.MapPost("/pickups", async (PickupAssignment assignment, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -396,7 +437,7 @@ api.MapPost("/pickups", async (PickupAssignment assignment, ClaimsPrincipal prin
     Audit(db, principal, "assign", "pickup", assignment.Id, assignment.DriverId.ToString());
     await db.SaveChangesAsync();
     return Results.Created($"/api/pickups/{assignment.Id}", assignment);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
 
 api.MapPatch("/pickups/{id:guid}/status", async (Guid id, JobStageRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -412,7 +453,7 @@ api.MapPatch("/pickups/{id:guid}/status", async (Guid id, JobStageRequest reques
     Audit(db, principal, "change-status", "pickup", id, request.Stage);
     await db.SaveChangesAsync();
     return Results.Ok(pickup);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
 
 api.MapPost("/attendance", async (AttendanceRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -476,14 +517,14 @@ api.MapPost("/reminders", async (Reminder reminder, ClaimsPrincipal principal, A
     Audit(db, principal, "schedule", "reminder", reminder.Id, reminder.Kind);
     await db.SaveChangesAsync();
     return Results.Created($"/api/reminders/{reminder.Id}", reminder);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Crm));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Crm));
 
 api.MapPatch("/reminders/{id:guid}/complete", async (Guid id, ClaimsPrincipal principal, AppDbContext db) =>
 {
     var organizationId = OrganizationId(principal);
     var reminder = await db.Reminders.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId);
     if (reminder is null) return Results.NotFound();
-    if (reminder.RecipientId != UserId(principal) && !principal.IsInRole(AppRoles.Owner) && !principal.IsInRole(AppRoles.Manager)) return Results.Forbid();
+    if (reminder.RecipientId != UserId(principal) && !principal.IsInRole(AppRoles.Admin) && !principal.IsInRole(AppRoles.Owner) && !principal.IsInRole(AppRoles.Manager)) return Results.Forbid();
     reminder.Completed = true;
     reminder.UpdatedAt = DateTimeOffset.UtcNow;
     await db.SaveChangesAsync();
@@ -517,7 +558,7 @@ api.MapPost("/invoices", async (Invoice invoice, ClaimsPrincipal principal, AppD
     Audit(db, principal, "create", "invoice", invoice.Id, invoice.Number);
     await db.SaveChangesAsync();
     return Results.Created($"/api/invoices/{invoice.Id}", invoice);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Owner, AppRoles.Accountant));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Accountant));
 
 api.MapGet("/consents/{jobId:guid}", async (Guid jobId, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -613,7 +654,7 @@ api.MapGet("/audit", async (ClaimsPrincipal principal, AppDbContext db) =>
     var events = await db.AuditEvents.AsNoTracking().Where(x => x.OrganizationId == organizationId).ToListAsync();
     return Results.Ok(events.OrderByDescending(x => x.CreatedAt).Take(500));
 })
-    .RequireAuthorization(p => p.RequireRole(AppRoles.Owner));
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
 
 app.MapFallbackToFile("index.html");
 
@@ -621,7 +662,16 @@ app.Run();
 
 static Guid UserId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier)!);
 static Guid OrganizationId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue("organization_id")!);
-static UserView ToView(UserAccount user) => new(user.Id, user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.PhotoUrl, user.DrivingLicensePhotoUrl);
+static UserView ToView(UserAccount user) => new(user.Id, user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.Active, user.PhotoUrl, user.DrivingLicensePhotoUrl);
+static bool CanAssignRole(ClaimsPrincipal principal, string role) =>
+    role != AppRoles.Admin && AppRoles.All.Contains(role) && (principal.IsInRole(AppRoles.Admin) || role != AppRoles.Owner);
+static async Task<UserAccount?> ManageableUser(Guid id, ClaimsPrincipal principal, AppDbContext db)
+{
+    var organizationId = OrganizationId(principal);
+    var user = await db.Users.SingleOrDefaultAsync(x => x.Id == id && x.OrganizationId == organizationId && x.Role != AppRoles.Admin);
+    if (user?.Role == AppRoles.Owner && !principal.IsInRole(AppRoles.Admin)) return null;
+    return user;
+}
 static async Task<bool> CanAccessJob(Guid jobId, ClaimsPrincipal principal, AppDbContext db)
 {
     var organizationId = OrganizationId(principal);
