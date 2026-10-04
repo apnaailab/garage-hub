@@ -53,7 +53,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const jobs = useStore((s) => s.jobs);
   const activeJobId = useStore((s) => s.activeJobId);
   const setActiveJob = useStore((s) => s.setActiveJob);
-  const addStaff = useStore((s) => s.addStaff);
+  const syncStaffAccount = useStore((s) => s.syncStaffAccount);
   const signedInRole = useAuthStore((s) => s.user?.role);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AuthUser[]>([]);
@@ -218,12 +218,15 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
         onClose={() => setAccountModalOpen(false)}
         onCreated={(account) => {
           setAccounts((current) => [...current, account]);
-          const staffRole = STAFF_ROLE_BY_ACCOUNT[account.role];
-          if (staffRole) addStaff({ id: account.id, name: account.name, role: staffRole, avatarColor: '#3182f6', efficiency: 0, activeJobs: 0, completedJobs: 0, available: true });
+          syncStaffAccount(account.id, account.name, STAFF_ROLE_BY_ACCOUNT[account.role] ?? null);
           setAccountModalOpen(false);
         }}
       />
-      <EditAccountModal account={editingAccount} allowOwner={isAdmin} onClose={() => setEditingAccount(null)} onUpdated={(account) => { replaceAccount(account); setEditingAccount(null); }} />
+      <EditAccountModal account={editingAccount} allowOwner={isAdmin} onClose={() => setEditingAccount(null)} onUpdated={(account) => {
+        replaceAccount(account);
+        syncStaffAccount(account.id, account.name, STAFF_ROLE_BY_ACCOUNT[account.role] ?? null);
+        setEditingAccount(null);
+      }} />
       <PasswordModal account={passwordAccount} onClose={() => setPasswordAccount(null)} />
     </div>
   );

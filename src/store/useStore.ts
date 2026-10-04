@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type {
   JobCard,
   Staff,
+  StaffRole,
   Customer,
   Role,
   StageId,
@@ -52,6 +53,7 @@ interface GarageState extends PortalData {
   addJob: (job: JobCard) => void;
   addCustomer: (customer: Customer) => void;
   addStaff: (staff: Staff) => void;
+  syncStaffAccount: (id: string, name: string, role: StaffRole | null) => void;
   advanceStage: (jobId: string) => void;
   setStage: (jobId: string, stage: StageId) => void;
   assignStaff: (jobId: string, staffId: string) => void;
@@ -154,6 +156,26 @@ export const useStore = create<GarageState>()(
       addCustomer: (customer) => set((s) => ({ customers: [...s.customers, customer] })),
 
       addStaff: (staff) => set((s) => ({ staff: s.staff.some((item) => item.id === staff.id) ? s.staff : [...s.staff, staff] })),
+
+      syncStaffAccount: (id, name, role) => set((state) => {
+        const existing = state.staff.find((member) => member.id === id);
+        if (!role) return { staff: state.staff.filter((member) => member.id !== id) };
+        if (existing) {
+          return { staff: state.staff.map((member) => member.id === id ? { ...member, name, role } : member) };
+        }
+        return {
+          staff: [...state.staff, {
+            id,
+            name,
+            role,
+            avatarColor: '#3182f6',
+            efficiency: 0,
+            activeJobs: 0,
+            completedJobs: 0,
+            available: true,
+          }],
+        };
+      }),
 
       advanceStage: (jobId) =>
         set((s) => ({
