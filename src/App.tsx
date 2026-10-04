@@ -8,6 +8,7 @@ import { Login } from '@/components/auth/Login';
 import { Dashboard } from '@/portals/manager/Dashboard';
 import { ServiceBoard } from '@/portals/manager/ServiceBoard';
 import { StaffManagement } from '@/portals/manager/StaffManagement';
+import { GarageManagement } from '@/portals/admin/GarageManagement';
 import { Intake } from '@/portals/receptionist/Intake';
 import { JobCards } from '@/portals/receptionist/JobCards';
 import { Vehicles } from '@/portals/receptionist/Vehicles';
@@ -44,6 +45,7 @@ export default function App() {
       if (page === 'jobcards') return <JobCards onPrint={onPrint} />;
       if (page === 'scheduler') return <Scheduler />;
     }
+    if (role === 'admin' && page === 'garages') return <GarageManagement />;
     if (role === 'admin' || role === 'owner' || role === 'manager') {
       if (page === 'board') return <ServiceBoard onPrint={onPrint} />;
       if (page === 'vehicles') return <Vehicles onPrint={onPrint} />;

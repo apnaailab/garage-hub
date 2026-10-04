@@ -188,6 +188,7 @@ public static class SeedData
 
         var people = new (string Name, string Role)[]
         {
+            ("System Admin", AppRoles.Admin),
             ("Garage Owner", AppRoles.Owner),
             ("Workshop Manager", AppRoles.Manager),
             ("Pickup Driver", AppRoles.Driver),

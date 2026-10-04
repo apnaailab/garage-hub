@@ -47,7 +47,10 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
             foreach (var property in entityType.GetProperties().Where(p => p.ClrType == typeof(decimal)))
+            {
                 property.SetPrecision(18);
+                property.SetScale(0);
+            }
         }
     }
 }

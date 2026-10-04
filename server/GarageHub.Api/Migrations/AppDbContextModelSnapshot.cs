@@ -224,7 +224,7 @@ namespace GarageHub.Api.Migrations
 
                     b.Property<decimal>("SellingPrice")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<string>("Sku")
                         .IsRequired()
@@ -235,7 +235,7 @@ namespace GarageHub.Api.Migrations
 
                     b.Property<decimal>("UnitCost")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -259,7 +259,7 @@ namespace GarageHub.Api.Migrations
 
                     b.Property<decimal>("EstimatedTotal")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<Guid>("JobId")
                         .HasColumnType("uuid");
@@ -280,15 +280,15 @@ namespace GarageHub.Api.Migrations
 
                     b.Property<decimal>("Subtotal")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<decimal>("Tax")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<decimal>("Total")
                         .HasPrecision(18)
-                        .HasColumnType("numeric(18)");
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<string>("Type")
                         .IsRequired()
@@ -450,6 +450,12 @@ namespace GarageHub.Api.Migrations
 
                     b.Property<DateTimeOffset>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("IsArchived")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("LogoStorageKey")
+                        .HasColumnType("text");
 
                     b.Property<string>("Name")
                         .IsRequired()

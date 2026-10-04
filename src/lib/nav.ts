@@ -13,6 +13,7 @@ import {
   Wallet,
   PackageCheck,
   Activity,
+  Building2,
 } from 'lucide-react';
 
 export interface NavItem {
@@ -24,6 +25,7 @@ export interface NavItem {
 export const NAV: Record<Role, NavItem[]> = {
   admin: [
     { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { page: 'garages', label: 'Garages', icon: Building2 },
     { page: 'board', label: 'Service Board', icon: KanbanSquare },
     { page: 'vehicles', label: 'Vehicle History', icon: Car },
     { page: 'staff', label: 'Staff & Access', icon: Users },

@@ -34,6 +34,8 @@ public sealed class Organization : Entity
 {
     public required string Name { get; set; }
     public required string Slug { get; set; }
+    public string? LogoStorageKey { get; set; }
+    public bool IsArchived { get; set; }
 }
 
 public sealed class UserAccount : Entity
@@ -238,17 +240,17 @@ public sealed class AuditEvent : Entity
 }
 
 public record LoginRequest(string Email, string Password);
-public record CreateUserRequest(string Name, string Email, string Phone, string Role, string Password);
-public record CreateOrganizationOwnerRequest(string GarageName, string Name, string Email, string Phone, string Password);
+public record CreateUserRequest(string Name, string Email, string Phone, string Role, string Password, Guid? OrganizationId);
+public record CreateOrganizationRequest(string Name);
 public record UpdateOrganizationRequest(string Name);
+public record SetOrganizationArchivedRequest(bool Archived);
 public record UpdateUserRequest(string Name, string Email, string Phone, string Role);
 public record SetUserActiveRequest(bool Active);
 public record SetUserPasswordRequest(string Password);
 public record LoginResponse(string Token, UserView User);
 public record UserView(Guid Id, Guid OrganizationId, string Name, string Email, string Phone, string Role, bool Active, string? PhotoUrl, string? DrivingLicensePhotoUrl);
-public record OrganizationIdentityView(Guid Id, string Name);
-public record OrganizationView(Guid Id, string Name, string Slug, int OwnerCount, int ActiveUserCount);
-public record OrganizationOwnerResponse(OrganizationView Organization, UserView Owner, LoginResponse Session);
+public record OrganizationIdentityView(Guid Id, string Name, string? LogoUrl);
+public record OrganizationView(Guid Id, string Name, string Slug, int OwnerCount, int ActiveUserCount, bool Archived, string? LogoUrl);
 public record WorkflowStateRequest(long BaseVersion, System.Text.Json.JsonElement Data);
 public record WorkflowStateResponse(long Version, System.Text.Json.JsonElement Data, DateTimeOffset UpdatedAt, Guid UpdatedById);
 public record AttendanceRequest(string EventType);

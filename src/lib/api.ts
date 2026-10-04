@@ -39,11 +39,14 @@ export interface OrganizationSummary {
   slug: string;
   ownerCount: number;
   activeUserCount: number;
+  archived: boolean;
+  logoUrl: string | null;
 }
 
 export interface OrganizationIdentity {
   id: string;
   name: string;
+  logoUrl: string | null;
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -76,6 +79,7 @@ export interface CreateUserInput {
   phone: string;
   role: string;
   password: string;
+  organizationId?: string;
 }
 
 export type UpdateUserInput = Omit<CreateUserInput, 'password'>;
@@ -88,22 +92,22 @@ export const usersApi = {
   setPassword: (id: string, password: string) => api<void>(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
 };
 
-export interface CreateOrganizationOwnerInput {
-  garageName: string;
-  name: string;
-  email: string;
-  phone: string;
-  password: string;
-}
-
 export const organizationsApi = {
   current: () => api<OrganizationIdentity>('/organization'),
   list: () => api<OrganizationSummary[]>('/admin/organizations'),
   switch: (id: string) => api<LoginResult>(`/admin/organizations/${id}/switch`, { method: 'POST' }),
-  createWithOwner: (input: CreateOrganizationOwnerInput) =>
-    api<{ organization: OrganizationSummary; owner: AuthUser; session: LoginResult }>('/admin/organizations', { method: 'POST', body: JSON.stringify(input) }),
+  create: (name: string) =>
+    api<OrganizationSummary>('/admin/organizations', { method: 'POST', body: JSON.stringify({ name }) }),
   update: (id: string, name: string) =>
     api<OrganizationSummary>(`/admin/organizations/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+  setArchived: (id: string, archived: boolean) =>
+    api<OrganizationSummary>(`/admin/organizations/${id}/archived`, { method: 'PUT', body: JSON.stringify({ archived }) }),
+  uploadLogo: (id: string, file: File) => {
+    const form = new FormData();
+    form.set('file', file);
+    return api<OrganizationSummary>(`/admin/organizations/${id}/logo`, { method: 'POST', body: form });
+  },
+  removeLogo: (id: string) => api<void>(`/admin/organizations/${id}/logo`, { method: 'DELETE' }),
 };
 
 interface UploadedDocument {

@@ -1,23 +1,30 @@
 import { useEffect, useState } from 'react';
-import { Search, Moon, Sun, ChevronDown, Wrench, Car, X, LogOut, Building2 } from 'lucide-react';
+import { Search, Moon, Sun, ChevronDown, Car, X, LogOut, Building2 } from 'lucide-react';
 import { useStore, customerById } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { ROLE_META, serviceById } from '@/lib/workflows';
 import { StageBadge } from '@/components/shared/StatusPill';
+import { GarageMark } from '@/components/shared/GarageMark';
 
 export function Header() {
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
   const garageName = useAuthStore((s) => s.garageName);
+  const garageLogoUrl = useAuthStore((s) => s.garageLogoUrl);
+  const garageNameLoading = useAuthStore((s) => s.garageNameLoading);
 
   return (
     <header className="no-print z-30 flex h-16 shrink-0 items-center gap-2 border-b border-ink-200 bg-white/80 px-3 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-900/80 sm:gap-3 sm:px-6">
       {/* mobile logo */}
       <div className="flex shrink-0 items-center gap-2 lg:hidden">
-        <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
-          <Wrench className="h-4 w-4" />
+        <GarageMark logoUrl={garageLogoUrl} loading={garageNameLoading} size="sm" />
+        <span className="w-24 sm:w-36">
+          {garageNameLoading ? (
+            <span className="block h-4 w-16 animate-pulse rounded bg-ink-200 dark:bg-ink-700 sm:w-24" aria-label="Loading garage name" />
+          ) : (
+            <span className="block truncate text-xs font-extrabold sm:text-sm" title={garageName ?? 'Garage'}>{garageName ?? 'Garage'}</span>
+          )}
         </span>
-        <span className="max-w-24 truncate text-xs font-extrabold sm:max-w-36 sm:text-sm" title={garageName ?? 'Your garage'}>{garageName ?? 'Your garage'}</span>
       </div>
 
       <GlobalSearch />
@@ -49,6 +56,7 @@ function GarageSelector() {
   }, [loadOrganizations, user?.role]);
 
   if (user?.role !== 'admin') return null;
+  const activeOrganizations = organizations.filter((organization) => !organization.archived);
 
   return (
     <label className="relative flex h-10 min-w-0 items-center rounded-xl border border-ink-200 bg-white pl-2 dark:border-ink-700 dark:bg-ink-800" title="Selected garage">
@@ -65,8 +73,8 @@ function GarageSelector() {
           finally { setSwitching(false); }
         }}
       >
-        {!organizations.some((organization) => organization.id === user.organizationId) && <option value={user.organizationId}>Current garage</option>}
-        {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+        {!activeOrganizations.some((organization) => organization.id === user.organizationId) && <option value={user.organizationId}>Current garage</option>}
+        {activeOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
       </select>
     </label>
   );

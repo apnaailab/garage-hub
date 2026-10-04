@@ -1,6 +1,6 @@
-import { Wrench } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
+import { GarageMark } from '@/components/shared/GarageMark';
 import { NAV } from '@/lib/nav';
 import { ROLE_META } from '@/lib/workflows';
 import { cn } from '@/lib/utils';
@@ -10,16 +10,20 @@ export function Sidebar() {
   const page = useStore((s) => s.page);
   const setPage = useStore((s) => s.setPage);
   const garageName = useAuthStore((s) => s.garageName);
+  const garageLogoUrl = useAuthStore((s) => s.garageLogoUrl);
+  const garageNameLoading = useAuthStore((s) => s.garageNameLoading);
   const items = NAV[role];
 
   return (
     <aside className="no-print hidden h-full w-64 shrink-0 flex-col overflow-hidden border-r border-ink-200 bg-white dark:border-ink-800 dark:bg-ink-900 lg:flex">
       <div className="flex h-16 items-center gap-2.5 px-6">
-        <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg shadow-brand-600/30">
-          <Wrench className="h-5 w-5" />
-        </span>
-        <div className="min-w-0 leading-tight">
-          <p className="truncate text-lg font-extrabold tracking-tight" title={garageName ?? 'Your garage'}>{garageName ?? 'Your garage'}</p>
+        <GarageMark logoUrl={garageLogoUrl} loading={garageNameLoading} />
+        <div className="w-[150px] min-w-0 leading-tight">
+          {garageNameLoading ? (
+            <span className="block h-5 w-28 animate-pulse rounded bg-ink-200 dark:bg-ink-700" aria-label="Loading garage name" />
+          ) : (
+            <p className="truncate text-lg font-extrabold tracking-tight" title={garageName ?? 'Garage'}>{garageName ?? 'Garage'}</p>
+          )}
           <p className="text-[10px] font-medium uppercase tracking-wider text-ink-400">
             Service Ops
           </p>

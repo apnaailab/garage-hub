@@ -27,7 +27,7 @@ import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
 import { ROLE_META, serviceById } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import { organizationsApi, usersApi, type AuthUser, type CreateUserInput, type UpdateUserInput } from '@/lib/api';
+import { usersApi, type AuthUser, type CreateUserInput, type UpdateUserInput } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Role, StaffRole } from '@/types';
 
@@ -62,6 +62,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const [editingAccount, setEditingAccount] = useState<AuthUser | null>(null);
   const [passwordAccount, setPasswordAccount] = useState<AuthUser | null>(null);
   const [accountError, setAccountError] = useState('');
+  const [accountMessage, setAccountMessage] = useState('');
   const canManageAccounts = signedInRole === 'admin' || signedInRole === 'owner';
   const isAdmin = signedInRole === 'admin';
 
@@ -114,6 +115,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
             <Badge tone="blue">{accounts.filter((account) => account.active).length} active</Badge>
           </div>
           {accountError && <p className="mb-3 text-sm text-rose-600">{accountError}</p>}
+          {accountMessage && <p className="mb-3 text-sm text-emerald-600">{accountMessage}</p>}
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {accounts.map((account) => (
               <div key={account.id} className={cn('border border-ink-100 p-3 dark:border-ink-800', !account.active && 'opacity-60')}>
@@ -226,9 +228,13 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
         open={accountModalOpen}
         allowOwner={isAdmin}
         onClose={() => setAccountModalOpen(false)}
-        onCreated={(account) => {
-          setAccounts((current) => [...current, account]);
-          syncStaffAccount(account.id, account.name, STAFF_ROLE_BY_ACCOUNT[account.role] ?? null);
+        onCreated={(account, garageName) => {
+          if (account.organizationId === organizationId) {
+            setAccounts((current) => [...current, account]);
+            syncStaffAccount(account.id, account.name, STAFF_ROLE_BY_ACCOUNT[account.role] ?? null);
+          } else {
+            setAccountMessage(`${account.name} was created for ${garageName}.`);
+          }
           setAccountModalOpen(false);
         }}
       />
@@ -242,47 +248,52 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   );
 }
 
-function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: boolean; allowOwner: boolean; onClose: () => void; onCreated: (user: AuthUser) => void }) {
+function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: boolean; allowOwner: boolean; onClose: () => void; onCreated: (user: AuthUser, garageName: string) => void }) {
   const [form, setForm] = useState<CreateUserInput>({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
-  const [ownerDestination, setOwnerDestination] = useState<'new' | 'current'>('new');
-  const [garageName, setGarageName] = useState('');
+  const organizations = useAuthStore((state) => state.organizations);
+  const currentOrganizationId = useAuthStore((state) => state.user?.organizationId);
+  const loadOrganizations = useAuthStore((state) => state.loadOrganizations);
+  const [selectedOrganizationId, setSelectedOrganizationId] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const activeOrganizations = organizations.filter((organization) => !organization.archived);
+  useEffect(() => {
+    if (open && allowOwner) void loadOrganizations().catch(() => setError('Unable to load garages.'));
+  }, [allowOwner, loadOrganizations, open]);
+  useEffect(() => {
+    if (!allowOwner || !open || activeOrganizations.some((organization) => organization.id === selectedOrganizationId)) return;
+    const preferred = activeOrganizations.find((organization) => organization.id === currentOrganizationId) ?? activeOrganizations[0];
+    setSelectedOrganizationId(preferred?.id ?? '');
+  }, [activeOrganizations, allowOwner, currentOrganizationId, open, selectedOrganizationId]);
   const update = (patch: Partial<CreateUserInput>) => setForm((current) => ({ ...current, ...patch }));
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
     setError('');
     try {
-      if (allowOwner && form.role === 'owner' && ownerDestination === 'new') {
-        const result = await organizationsApi.createWithOwner({ garageName, name: form.name, email: form.email, phone: form.phone, password: form.password });
-        useAuthStore.getState().acceptSession(result.session);
-        void useAuthStore.getState().loadOrganizations();
-        onCreated(result.owner);
-      } else {
-        onCreated(await usersApi.create(form));
-      }
+      if (allowOwner && !selectedOrganizationId) throw new Error('Select a garage for this account.');
+      const account = await usersApi.create({ ...form, organizationId: allowOwner ? selectedOrganizationId : undefined });
+      const garageName = allowOwner
+        ? activeOrganizations.find((organization) => organization.id === selectedOrganizationId)?.name ?? 'the selected garage'
+        : 'your garage';
+      onCreated(account, garageName);
       setForm({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
-      setOwnerDestination('new');
-      setGarageName('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Account creation failed.');
     } finally {
       setSaving(false);
     }
   };
-  const creatingNewGarage = allowOwner && form.role === 'owner' && ownerDestination === 'new';
   return <Modal open={open} onClose={onClose} title="Add organization account" size="sm">
     <form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}>
       <div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div>
       <div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div>
       <div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div>
       <div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => role !== 'admin' && (allowOwner || role !== 'owner')).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div>
-      {allowOwner && form.role === 'owner' && <div><Label>Owner assignment</Label><Select value={ownerDestination} onChange={(event) => setOwnerDestination(event.target.value as 'new' | 'current')}><option value="new">Create a new garage</option><option value="current">Add to selected garage</option></Select></div>}
-      {creatingNewGarage && <div><Label>Garage name</Label><Input value={garageName} onChange={(event) => setGarageName(event.target.value)} placeholder="e.g. Shree auto" required /></div>}
+      {allowOwner && <div><Label>Garage</Label><Select value={selectedOrganizationId} onChange={(event) => setSelectedOrganizationId(event.target.value)} required><option value="" disabled>Select garage</option>{activeOrganizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}</Select></div>}
       <div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>
       {error && <p className="text-sm text-rose-600">{error}</p>}
-      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : creatingNewGarage ? 'Create garage & owner' : 'Create account'}</Button></div>
+      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving || (allowOwner && !selectedOrganizationId)}>{saving ? 'Creating…' : 'Create account'}</Button></div>
     </form>
   </Modal>;
 }

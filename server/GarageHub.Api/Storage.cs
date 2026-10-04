@@ -8,6 +8,7 @@ public interface IFileStorage
 {
     Task<string> UploadAsync(Stream content, string objectName, string contentType, CancellationToken cancellationToken);
     Task<string> GetDownloadUrlAsync(string storageKey, CancellationToken cancellationToken);
+    Task DeleteAsync(string storageKey, CancellationToken cancellationToken);
 }
 
 public sealed class LocalFileStorage(IWebHostEnvironment environment) : IFileStorage
@@ -24,6 +25,13 @@ public sealed class LocalFileStorage(IWebHostEnvironment environment) : IFileSto
 
     public Task<string> GetDownloadUrlAsync(string storageKey, CancellationToken cancellationToken) =>
         Task.FromResult($"/{storageKey.TrimStart('/')}");
+
+    public Task DeleteAsync(string storageKey, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(environment.ContentRootPath, "wwwroot", storageKey.Replace('/', Path.DirectorySeparatorChar));
+        if (File.Exists(path)) File.Delete(path);
+        return Task.CompletedTask;
+    }
 }
 
 public sealed class SupabaseFileStorage(HttpClient httpClient, IConfiguration configuration) : IFileStorage
@@ -54,6 +62,14 @@ public sealed class SupabaseFileStorage(HttpClient httpClient, IConfiguration co
         var signedUrl = document.RootElement.GetProperty("signedURL").GetString()
             ?? throw new InvalidOperationException("Supabase Storage did not return a signed URL.");
         return $"{_url}/storage/v1{signedUrl}";
+    }
+
+    public async Task DeleteAsync(string storageKey, CancellationToken cancellationToken)
+    {
+        using var request = CreateRequest(HttpMethod.Delete, $"/storage/v1/object/{Escape(_bucket)}");
+        request.Content = JsonContent.Create(new { prefixes = new[] { storageKey } });
+        using var response = await httpClient.SendAsync(request, cancellationToken);
+        await EnsureSuccessAsync(response, cancellationToken);
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string path)

@@ -38,11 +38,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     };
     options.Events = new JwtBearerEvents
     {
-        OnTokenValidated = context =>
+        OnTokenValidated = async context =>
         {
             var role = context.Principal?.FindFirstValue(ClaimTypes.Role);
-            if (role is null || !AppRoles.All.Contains(role)) context.Fail("This account role is no longer supported.");
-            return Task.CompletedTask;
+            if (role is null || !AppRoles.All.Contains(role))
+            {
+                context.Fail("This account role is no longer supported.");
+                return;
+            }
+            if (!Guid.TryParse(context.Principal?.FindFirstValue("organization_id"), out var organizationId))
+            {
+                context.Fail("The organization claim is invalid.");
+                return;
+            }
+            var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+            if (!await db.Organizations.AnyAsync(x => x.Id == organizationId && !x.IsArchived))
+                context.Fail("This garage is archived.");
         }
     };
 });
@@ -84,10 +95,18 @@ using (var scope = app.Services.CreateScope())
 
 app.MapGet("/api/health", () => Results.Ok(new { status = "healthy", at = DateTimeOffset.UtcNow }));
 
+app.MapGet("/api/organizations/{id:guid}/logo", async (Guid id, AppDbContext db, IFileStorage storage, CancellationToken cancellationToken) =>
+{
+    var storageKey = await db.Organizations.AsNoTracking().Where(x => x.Id == id).Select(x => x.LogoStorageKey).SingleOrDefaultAsync(cancellationToken);
+    return string.IsNullOrWhiteSpace(storageKey)
+        ? Results.NotFound()
+        : Results.Redirect(await storage.GetDownloadUrlAsync(storageKey, cancellationToken));
+});
+
 app.MapPost("/api/auth/login", async (LoginRequest request, AppDbContext db) =>
 {
     var email = request.Email.Trim().ToLowerInvariant();
-    var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.Active);
+    var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.Active && db.Organizations.Any(organization => organization.Id == x.OrganizationId && !organization.IsArchived));
     if (user is null || !AppRoles.All.Contains(user.Role) || !Passwords.Verify(request.Password, user.PasswordHash))
         return Results.Unauthorized();
 
@@ -189,68 +208,53 @@ api.MapGet("/organization", async (ClaimsPrincipal principal, AppDbContext db) =
     var organizationId = OrganizationId(principal);
     var organization = await db.Organizations.AsNoTracking()
         .Where(x => x.Id == organizationId)
-        .Select(x => new OrganizationIdentityView(x.Id, x.Name))
+        .Select(x => new { x.Id, x.Name, x.LogoStorageKey, x.UpdatedAt })
         .SingleOrDefaultAsync();
-    return organization is null ? Results.NotFound() : Results.Ok(organization);
+    return organization is null
+        ? Results.NotFound()
+        : Results.Ok(new OrganizationIdentityView(organization.Id, organization.Name, OrganizationLogoUrl(organization.Id, organization.LogoStorageKey, organization.UpdatedAt)));
 });
 
 api.MapGet("/admin/organizations", async (AppDbContext db) =>
-    Results.Ok(await db.Organizations.AsNoTracking()
+{
+    var organizations = await db.Organizations.AsNoTracking()
         .OrderBy(x => x.Name)
-        .Select(organization => new OrganizationView(
+        .Select(organization => new
+        {
             organization.Id,
             organization.Name,
             organization.Slug,
-            db.Users.Count(user => user.OrganizationId == organization.Id && user.Role == AppRoles.Owner),
-            db.Users.Count(user => user.OrganizationId == organization.Id && user.Active && user.Role != AppRoles.Admin)))
-        .ToListAsync()))
+            organization.IsArchived,
+            organization.LogoStorageKey,
+            organization.UpdatedAt,
+            OwnerCount = db.Users.Count(user => user.OrganizationId == organization.Id && user.Role == AppRoles.Owner),
+            ActiveUserCount = db.Users.Count(user => user.OrganizationId == organization.Id && user.Active && user.Role != AppRoles.Admin)
+        })
+        .ToListAsync();
+    return Results.Ok(organizations.Select(x => new OrganizationView(x.Id, x.Name, x.Slug, x.OwnerCount, x.ActiveUserCount, x.IsArchived, OrganizationLogoUrl(x.Id, x.LogoStorageKey, x.UpdatedAt))));
+})
     .RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
 
 api.MapPost("/admin/organizations/{id:guid}/switch", async (Guid id, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    if (!await db.Organizations.AnyAsync(x => x.Id == id)) return Results.NotFound();
+    if (!await db.Organizations.AnyAsync(x => x.Id == id && !x.IsArchived)) return Results.NotFound();
     var userId = UserId(principal);
     var admin = await db.Users.SingleOrDefaultAsync(x => x.Id == userId && x.Active && x.Role == AppRoles.Admin);
     return admin is null ? Results.Unauthorized() : Results.Ok(CreateLoginResponse(admin, id, signingKey));
 }).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
 
-api.MapPost("/admin/organizations", async (CreateOrganizationOwnerRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+api.MapPost("/admin/organizations", async (CreateOrganizationRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
-    if (string.IsNullOrWhiteSpace(request.GarageName) || string.IsNullOrWhiteSpace(request.Name))
-        return Results.BadRequest(new { error = "Garage name and owner name are required." });
-    if (request.Password.Length < 8) return Results.BadRequest(new { error = "Password must contain at least 8 characters." });
-
-    var email = request.Email.Trim().ToLowerInvariant();
-    if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
-    var slug = GarageSlug(request.GarageName);
+    if (string.IsNullOrWhiteSpace(request.Name)) return Results.BadRequest(new { error = "Garage name is required." });
+    var slug = GarageSlug(request.Name);
+    if (string.IsNullOrWhiteSpace(slug)) return Results.BadRequest(new { error = "Garage name must contain letters or numbers." });
     if (await db.Organizations.AnyAsync(x => x.Slug == slug)) return Results.Conflict(new { error = "A garage with this name already exists." });
 
-    var organization = new Organization { Name = request.GarageName.Trim(), Slug = slug };
-    var owner = new UserAccount
-    {
-        OrganizationId = organization.Id,
-        Name = request.Name.Trim(),
-        Email = email,
-        Phone = request.Phone.Trim(),
-        Role = AppRoles.Owner,
-        PasswordHash = Passwords.Hash(request.Password)
-    };
+    var organization = new Organization { Name = request.Name.Trim(), Slug = slug };
     db.Organizations.Add(organization);
-    db.Users.Add(owner);
-    db.AuditEvents.Add(new AuditEvent
-    {
-        OrganizationId = organization.Id,
-        ActorId = UserId(principal),
-        Action = "create",
-        EntityType = "organization",
-        EntityId = organization.Id.ToString(),
-        DetailsJson = JsonSerializer.Serialize(new { organization.Name, owner.Email })
-    });
+    Audit(db, principal, "create", "organization", organization.Id, organization.Name, organization.Id);
     await db.SaveChangesAsync();
-    var adminId = UserId(principal);
-    var admin = await db.Users.SingleAsync(x => x.Id == adminId);
-    var organizationView = new OrganizationView(organization.Id, organization.Name, organization.Slug, 1, 1);
-    return Results.Created($"/api/admin/organizations/{organization.Id}", new OrganizationOwnerResponse(organizationView, ToView(owner), CreateLoginResponse(admin, organization.Id, signingKey)));
+    return Results.Created($"/api/admin/organizations/{organization.Id}", ToOrganizationView(organization, 0, 0));
 }).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
 
 api.MapPut("/admin/organizations/{id:guid}", async (Guid id, UpdateOrganizationRequest request, AppDbContext db) =>
@@ -267,7 +271,62 @@ api.MapPut("/admin/organizations/{id:guid}", async (Guid id, UpdateOrganizationR
     await db.SaveChangesAsync();
     var ownerCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Role == AppRoles.Owner);
     var activeUserCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Active && x.Role != AppRoles.Admin);
-    return Results.Ok(new OrganizationView(id, organization.Name, organization.Slug, ownerCount, activeUserCount));
+    return Results.Ok(ToOrganizationView(organization, ownerCount, activeUserCount));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapPut("/admin/organizations/{id:guid}/archived", async (Guid id, SetOrganizationArchivedRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organization = await db.Organizations.FindAsync(id);
+    if (organization is null) return Results.NotFound();
+    if (request.Archived && id == OrganizationId(principal))
+        return Results.Conflict(new { error = "Switch to another garage before archiving this one." });
+    organization.IsArchived = request.Archived;
+    organization.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, request.Archived ? "archive" : "restore", "organization", id, organization.Name, id);
+    await db.SaveChangesAsync();
+    var ownerCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Role == AppRoles.Owner);
+    var activeUserCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Active && x.Role != AppRoles.Admin);
+    return Results.Ok(ToOrganizationView(organization, ownerCount, activeUserCount));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapPost("/admin/organizations/{id:guid}/logo", async (Guid id, HttpRequest request, ClaimsPrincipal principal, AppDbContext db, IFileStorage storage, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
+{
+    var organization = await db.Organizations.FindAsync([id], cancellationToken);
+    if (organization is null) return Results.NotFound();
+    if (!request.HasFormContentType) return Results.BadRequest(new { error = "multipart/form-data required" });
+    var form = await request.ReadFormAsync(cancellationToken);
+    var file = form.Files.GetFile("file");
+    if (file is null || file.Length == 0) return Results.BadRequest(new { error = "Logo file is required." });
+    if (file.Length > 2 * 1024 * 1024) return Results.BadRequest(new { error = "Maximum logo size is 2 MB." });
+    var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+    if (extension is not ".jpg" and not ".jpeg" and not ".png" and not ".webp")
+        return Results.BadRequest(new { error = "Logo must be a JPG, PNG or WebP image." });
+
+    var previousKey = organization.LogoStorageKey;
+    var objectName = $"organization-logos/{id:N}/{Guid.NewGuid():N}{extension}";
+    var contentType = string.IsNullOrWhiteSpace(file.ContentType) ? "application/octet-stream" : file.ContentType;
+    await using var stream = file.OpenReadStream();
+    organization.LogoStorageKey = await storage.UploadAsync(stream, objectName, contentType, cancellationToken);
+    organization.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, "update-logo", "organization", id, organization.Name, id);
+    await db.SaveChangesAsync(cancellationToken);
+    await DeletePreviousLogo(previousKey, storage, loggerFactory, cancellationToken);
+    var ownerCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Role == AppRoles.Owner, cancellationToken);
+    var activeUserCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Active && x.Role != AppRoles.Admin, cancellationToken);
+    return Results.Ok(ToOrganizationView(organization, ownerCount, activeUserCount));
+}).DisableAntiforgery().RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapDelete("/admin/organizations/{id:guid}/logo", async (Guid id, ClaimsPrincipal principal, AppDbContext db, IFileStorage storage, ILoggerFactory loggerFactory, CancellationToken cancellationToken) =>
+{
+    var organization = await db.Organizations.FindAsync([id], cancellationToken);
+    if (organization is null) return Results.NotFound();
+    var previousKey = organization.LogoStorageKey;
+    organization.LogoStorageKey = null;
+    organization.UpdatedAt = DateTimeOffset.UtcNow;
+    Audit(db, principal, "remove-logo", "organization", id, organization.Name, id);
+    await db.SaveChangesAsync(cancellationToken);
+    await DeletePreviousLogo(previousKey, storage, loggerFactory, cancellationToken);
+    return Results.NoContent();
 }).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
 
 api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
@@ -285,15 +344,19 @@ api.MapPost("/users", async (CreateUserRequest request, ClaimsPrincipal principa
 {
     if (!CanAssignRole(principal, request.Role)) return Results.Forbid();
     if (request.Password.Length < 8) return Results.BadRequest(new { error = "Password must contain at least 8 characters." });
+    var organizationId = principal.IsInRole(AppRoles.Admin) ? request.OrganizationId : OrganizationId(principal);
+    if (!organizationId.HasValue) return Results.BadRequest(new { error = "Garage selection is required." });
+    if (!await db.Organizations.AnyAsync(x => x.Id == organizationId && !x.IsArchived))
+        return Results.BadRequest(new { error = "The selected garage is unavailable." });
     var email = request.Email.Trim().ToLowerInvariant();
     if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
     var user = new UserAccount
     {
-        OrganizationId = OrganizationId(principal), Name = request.Name.Trim(), Email = email,
+        OrganizationId = organizationId.Value, Name = request.Name.Trim(), Email = email,
         Phone = request.Phone.Trim(), Role = request.Role, PasswordHash = Passwords.Hash(request.Password)
     };
     db.Users.Add(user);
-    Audit(db, principal, "create", "user", user.Id, user.Role);
+    Audit(db, principal, "create", "user", user.Id, user.Role, organizationId.Value);
     await db.SaveChangesAsync();
     return Results.Created($"/api/users/{user.Id}", ToView(user));
 }).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner));
@@ -811,9 +874,25 @@ static async Task<bool> IsPortalPhoto(Guid documentId, Guid organizationId, AppD
     }
     return false;
 }
-static void Audit(AppDbContext db, ClaimsPrincipal principal, string action, string entityType, Guid entityId, string detail) =>
+static OrganizationView ToOrganizationView(Organization organization, int ownerCount, int activeUserCount) =>
+    new(organization.Id, organization.Name, organization.Slug, ownerCount, activeUserCount, organization.IsArchived, OrganizationLogoUrl(organization.Id, organization.LogoStorageKey, organization.UpdatedAt));
+static string? OrganizationLogoUrl(Guid organizationId, string? storageKey, DateTimeOffset updatedAt) =>
+    string.IsNullOrWhiteSpace(storageKey) ? null : $"/api/organizations/{organizationId}/logo?v={updatedAt.ToUnixTimeMilliseconds()}";
+static async Task DeletePreviousLogo(string? storageKey, IFileStorage storage, ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+{
+    if (string.IsNullOrWhiteSpace(storageKey)) return;
+    try
+    {
+        await storage.DeleteAsync(storageKey, cancellationToken);
+    }
+    catch (Exception exception)
+    {
+        loggerFactory.CreateLogger("OrganizationLogo").LogWarning(exception, "Unable to delete replaced organization logo {StorageKey}", storageKey);
+    }
+}
+static void Audit(AppDbContext db, ClaimsPrincipal principal, string action, string entityType, Guid entityId, string detail, Guid? organizationId = null) =>
     db.AuditEvents.Add(new AuditEvent
     {
-        OrganizationId = OrganizationId(principal), ActorId = UserId(principal), Action = action, EntityType = entityType, EntityId = entityId.ToString(),
+        OrganizationId = organizationId ?? OrganizationId(principal), ActorId = UserId(principal), Action = action, EntityType = entityType, EntityId = entityId.ToString(),
         DetailsJson = JsonSerializer.Serialize(new { detail })
     });
