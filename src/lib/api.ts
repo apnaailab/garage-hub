@@ -50,7 +50,7 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
   if (sessionToken) headers.set('Authorization', `Bearer ${sessionToken}`);
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${API_URL}${path}`, { cache: 'no-store', ...init, headers });
   if (response.status === 401) {
     localStorage.removeItem('garagehub-token');
     localStorage.removeItem('garagehub-user');
@@ -130,6 +130,7 @@ function stateApi(basePath: string) {
   return {
   async get<T>(): Promise<WorkflowEnvelope<T> | null> {
     const response = await fetch(`${API_URL}/${basePath}`, {
+      cache: 'no-store',
       headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
     });
     if (response.status === 404) return null;
