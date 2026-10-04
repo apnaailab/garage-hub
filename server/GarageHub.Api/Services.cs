@@ -116,7 +116,7 @@ public static class SeedData
                 var protectedAdmin = await db.Users.SingleOrDefaultAsync(x => x.Email == AppRoles.ProtectedAdminEmail);
                 if (protectedAdmin is null)
                 {
-                    var organizationId = await db.Organizations.Select(x => x.Id).SingleAsync();
+                    var organizationId = await db.Organizations.OrderBy(x => x.CreatedAt).Select(x => x.Id).FirstAsync();
                     protectedAdmin = new UserAccount
                     {
                         OrganizationId = organizationId,

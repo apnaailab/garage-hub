@@ -27,7 +27,7 @@ import { JobDetailDrawer } from '@/components/shared/JobDetailDrawer';
 import { ROLE_META, serviceById } from '@/lib/workflows';
 import { jobTotal } from '@/lib/jobUtils';
 import { cn, formatCurrency, formatDate } from '@/lib/utils';
-import { usersApi, type AuthUser, type CreateUserInput, type UpdateUserInput } from '@/lib/api';
+import { organizationsApi, usersApi, type AuthUser, type CreateUserInput, type UpdateUserInput } from '@/lib/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import type { Role, StaffRole } from '@/types';
 
@@ -55,6 +55,7 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const setActiveJob = useStore((s) => s.setActiveJob);
   const syncStaffAccount = useStore((s) => s.syncStaffAccount);
   const signedInRole = useAuthStore((s) => s.user?.role);
+  const organizationId = useAuthStore((s) => s.user?.organizationId);
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AuthUser[]>([]);
   const [accountModalOpen, setAccountModalOpen] = useState(false);
@@ -65,10 +66,19 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
   const isAdmin = signedInRole === 'admin';
 
   useEffect(() => {
+    let disposed = false;
     if (canManageAccounts) {
-      void usersApi.list().then(setAccounts).catch(() => setAccountError('Unable to load organization accounts.'));
+      setAccounts([]);
+      void usersApi.list()
+        .then((users) => {
+          if (!disposed && useAuthStore.getState().user?.organizationId === organizationId) setAccounts(users);
+        })
+        .catch(() => {
+          if (!disposed) setAccountError('Unable to load organization accounts.');
+        });
     }
-  }, [canManageAccounts]);
+    return () => { disposed = true; };
+  }, [canManageAccounts, organizationId]);
 
   const replaceAccount = (updated: AuthUser) => {
     setAccounts((current) => current.map((account) => account.id === updated.id ? updated : account));
@@ -234,6 +244,8 @@ export function StaffManagement({ onPrint }: { onPrint: (id: string) => void }) 
 
 function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: boolean; allowOwner: boolean; onClose: () => void; onCreated: (user: AuthUser) => void }) {
   const [form, setForm] = useState<CreateUserInput>({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
+  const [ownerDestination, setOwnerDestination] = useState<'new' | 'current'>('new');
+  const [garageName, setGarageName] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const update = (patch: Partial<CreateUserInput>) => setForm((current) => ({ ...current, ...patch }));
@@ -242,15 +254,37 @@ function CreateAccountModal({ open, allowOwner, onClose, onCreated }: { open: bo
     setSaving(true);
     setError('');
     try {
-      onCreated(await usersApi.create(form));
+      if (allowOwner && form.role === 'owner' && ownerDestination === 'new') {
+        const result = await organizationsApi.createWithOwner({ garageName, name: form.name, email: form.email, phone: form.phone, password: form.password });
+        useAuthStore.getState().acceptSession(result.session);
+        void useAuthStore.getState().loadOrganizations();
+        onCreated(result.owner);
+      } else {
+        onCreated(await usersApi.create(form));
+      }
       setForm({ name: '', email: '', phone: '', role: 'mechanic', password: '' });
+      setOwnerDestination('new');
+      setGarageName('');
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Account creation failed.');
     } finally {
       setSaving(false);
     }
   };
-  return <Modal open={open} onClose={onClose} title="Add organization account" size="sm"><form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}><div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div><div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div><div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div><div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => role !== 'admin' && (allowOwner || role !== 'owner')).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div><div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>{error && <p className="text-sm text-rose-600">{error}</p>}<div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : 'Create account'}</Button></div></form></Modal>;
+  const creatingNewGarage = allowOwner && form.role === 'owner' && ownerDestination === 'new';
+  return <Modal open={open} onClose={onClose} title="Add organization account" size="sm">
+    <form className="space-y-4 p-5" onSubmit={(event) => void submit(event)}>
+      <div><Label>Name</Label><Input value={form.name} onChange={(event) => update({ name: event.target.value })} required /></div>
+      <div><Label>Email</Label><Input type="email" autoComplete="off" value={form.email} onChange={(event) => update({ email: event.target.value })} required /></div>
+      <div><Label>Phone</Label><Input type="tel" value={form.phone} onChange={(event) => update({ phone: event.target.value })} /></div>
+      <div><Label>Role</Label><Select value={form.role} onChange={(event) => update({ role: event.target.value })}>{ACCOUNT_ROLES.filter(([role]) => role !== 'admin' && (allowOwner || role !== 'owner')).map(([role, label]) => <option key={role} value={role}>{label}</option>)}</Select></div>
+      {allowOwner && form.role === 'owner' && <div><Label>Owner assignment</Label><Select value={ownerDestination} onChange={(event) => setOwnerDestination(event.target.value as 'new' | 'current')}><option value="new">Create a new garage</option><option value="current">Add to selected garage</option></Select></div>}
+      {creatingNewGarage && <div><Label>Garage name</Label><Input value={garageName} onChange={(event) => setGarageName(event.target.value)} placeholder="e.g. Shree auto" required /></div>}
+      <div><Label>Temporary password</Label><Input type="password" autoComplete="new-password" minLength={8} value={form.password} onChange={(event) => update({ password: event.target.value })} required /></div>
+      {error && <p className="text-sm text-rose-600">{error}</p>}
+      <div className="flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>Cancel</Button><Button type="submit" disabled={saving}>{saving ? 'Creating…' : creatingNewGarage ? 'Create garage & owner' : 'Create account'}</Button></div>
+    </form>
+  </Modal>;
 }
 
 function EditAccountModal({ account, allowOwner, onClose, onUpdated }: { account: AuthUser | null; allowOwner: boolean; onClose: () => void; onUpdated: (user: AuthUser) => void }) {

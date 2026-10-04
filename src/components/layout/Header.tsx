@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Search, Moon, Sun, ChevronDown, Wrench, Car, X, LogOut } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Moon, Sun, ChevronDown, Wrench, Car, X, LogOut, Building2 } from 'lucide-react';
 import { useStore, customerById } from '@/store/useStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { ROLE_META, serviceById } from '@/lib/workflows';
@@ -22,6 +22,7 @@ export function Header() {
       <GlobalSearch />
 
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+        <GarageSelector />
         <button
           onClick={toggleTheme}
           className="flex h-10 w-10 items-center justify-center rounded-xl text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800"
@@ -32,6 +33,41 @@ export function Header() {
         <AccountMenu />
       </div>
     </header>
+  );
+}
+
+function GarageSelector() {
+  const user = useAuthStore((state) => state.user);
+  const organizations = useAuthStore((state) => state.organizations);
+  const loadOrganizations = useAuthStore((state) => state.loadOrganizations);
+  const switchOrganization = useAuthStore((state) => state.switchOrganization);
+  const [switching, setSwitching] = useState(false);
+
+  useEffect(() => {
+    if (user?.role === 'admin') void loadOrganizations().catch(() => undefined);
+  }, [loadOrganizations, user?.role]);
+
+  if (user?.role !== 'admin') return null;
+
+  return (
+    <label className="relative flex h-10 min-w-0 items-center rounded-xl border border-ink-200 bg-white pl-2 dark:border-ink-700 dark:bg-ink-800" title="Selected garage">
+      <Building2 className="h-4 w-4 shrink-0 text-brand-600" />
+      <select
+        aria-label="Selected garage"
+        className="h-full min-w-0 max-w-32 bg-transparent pl-1 pr-6 text-xs font-semibold outline-none sm:max-w-52 sm:text-sm"
+        value={user.organizationId}
+        disabled={switching}
+        onChange={async (event) => {
+          setSwitching(true);
+          try { await switchOrganization(event.target.value); }
+          catch { return; }
+          finally { setSwitching(false); }
+        }}
+      >
+        {!organizations.some((organization) => organization.id === user.organizationId) && <option value={user.organizationId}>Current garage</option>}
+        {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
+      </select>
+    </label>
   );
 }
 

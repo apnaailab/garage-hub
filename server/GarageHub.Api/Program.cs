@@ -91,23 +91,7 @@ app.MapPost("/api/auth/login", async (LoginRequest request, AppDbContext db) =>
     if (user is null || !AppRoles.All.Contains(user.Role) || !Passwords.Verify(request.Password, user.PasswordHash))
         return Results.Unauthorized();
 
-    var claims = new[]
-    {
-        new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new Claim(ClaimTypes.Name, user.Name),
-        new Claim(ClaimTypes.Email, user.Email),
-        new Claim(ClaimTypes.Role, user.Role),
-        new Claim("organization_id", user.OrganizationId.ToString())
-    };
-    var token = new JwtSecurityToken(
-        issuer: "GarageHub",
-        audience: "GarageHub.Web",
-        claims: claims,
-        expires: DateTime.UtcNow.AddHours(8),
-        signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
-    var view = ToView(user);
-    return Results.Ok(new LoginResponse(new JwtSecurityTokenHandler().WriteToken(token), view));
+    return Results.Ok(CreateLoginResponse(user, user.OrganizationId, signingKey));
 });
 
 var api = app.MapGroup("/api").RequireAuthorization();
@@ -197,8 +181,84 @@ api.MapPut("/portal-state", async (WorkflowStateRequest request, ClaimsPrincipal
 api.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
     var user = await db.Users.FindAsync(UserId(principal));
-    return user is null ? Results.NotFound() : Results.Ok(ToView(user));
+    return user is null ? Results.NotFound() : Results.Ok(ToView(user, OrganizationId(principal)));
 });
+
+api.MapGet("/admin/organizations", async (AppDbContext db) =>
+    Results.Ok(await db.Organizations.AsNoTracking()
+        .OrderBy(x => x.Name)
+        .Select(organization => new OrganizationView(
+            organization.Id,
+            organization.Name,
+            organization.Slug,
+            db.Users.Count(user => user.OrganizationId == organization.Id && user.Role == AppRoles.Owner),
+            db.Users.Count(user => user.OrganizationId == organization.Id && user.Active && user.Role != AppRoles.Admin)))
+        .ToListAsync()))
+    .RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapPost("/admin/organizations/{id:guid}/switch", async (Guid id, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    if (!await db.Organizations.AnyAsync(x => x.Id == id)) return Results.NotFound();
+    var userId = UserId(principal);
+    var admin = await db.Users.SingleOrDefaultAsync(x => x.Id == userId && x.Active && x.Role == AppRoles.Admin);
+    return admin is null ? Results.Unauthorized() : Results.Ok(CreateLoginResponse(admin, id, signingKey));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapPost("/admin/organizations", async (CreateOrganizationOwnerRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.GarageName) || string.IsNullOrWhiteSpace(request.Name))
+        return Results.BadRequest(new { error = "Garage name and owner name are required." });
+    if (request.Password.Length < 8) return Results.BadRequest(new { error = "Password must contain at least 8 characters." });
+
+    var email = request.Email.Trim().ToLowerInvariant();
+    if (await db.Users.AnyAsync(x => x.Email == email)) return Results.Conflict(new { error = "Email is already registered." });
+    var slug = GarageSlug(request.GarageName);
+    if (await db.Organizations.AnyAsync(x => x.Slug == slug)) return Results.Conflict(new { error = "A garage with this name already exists." });
+
+    var organization = new Organization { Name = request.GarageName.Trim(), Slug = slug };
+    var owner = new UserAccount
+    {
+        OrganizationId = organization.Id,
+        Name = request.Name.Trim(),
+        Email = email,
+        Phone = request.Phone.Trim(),
+        Role = AppRoles.Owner,
+        PasswordHash = Passwords.Hash(request.Password)
+    };
+    db.Organizations.Add(organization);
+    db.Users.Add(owner);
+    db.AuditEvents.Add(new AuditEvent
+    {
+        OrganizationId = organization.Id,
+        ActorId = UserId(principal),
+        Action = "create",
+        EntityType = "organization",
+        EntityId = organization.Id.ToString(),
+        DetailsJson = JsonSerializer.Serialize(new { organization.Name, owner.Email })
+    });
+    await db.SaveChangesAsync();
+    var adminId = UserId(principal);
+    var admin = await db.Users.SingleAsync(x => x.Id == adminId);
+    var organizationView = new OrganizationView(organization.Id, organization.Name, organization.Slug, 1, 1);
+    return Results.Created($"/api/admin/organizations/{organization.Id}", new OrganizationOwnerResponse(organizationView, ToView(owner), CreateLoginResponse(admin, organization.Id, signingKey)));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
+
+api.MapPut("/admin/organizations/{id:guid}", async (Guid id, UpdateOrganizationRequest request, AppDbContext db) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Name)) return Results.BadRequest(new { error = "Garage name is required." });
+    var organization = await db.Organizations.FindAsync(id);
+    if (organization is null) return Results.NotFound();
+    var slug = GarageSlug(request.Name);
+    if (await db.Organizations.AnyAsync(x => x.Id != id && x.Slug == slug))
+        return Results.Conflict(new { error = "A garage with this name already exists." });
+    organization.Name = request.Name.Trim();
+    organization.Slug = slug;
+    organization.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
+    var ownerCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Role == AppRoles.Owner);
+    var activeUserCount = await db.Users.CountAsync(x => x.OrganizationId == id && x.Active && x.Role != AppRoles.Admin);
+    return Results.Ok(new OrganizationView(id, organization.Name, organization.Slug, ownerCount, activeUserCount));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin));
 
 api.MapGet("/users", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -671,7 +731,31 @@ app.Run();
 
 static Guid UserId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue(ClaimTypes.NameIdentifier)!);
 static Guid OrganizationId(ClaimsPrincipal principal) => Guid.Parse(principal.FindFirstValue("organization_id")!);
-static UserView ToView(UserAccount user) => new(user.Id, user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.Active, user.PhotoUrl, user.DrivingLicensePhotoUrl);
+static UserView ToView(UserAccount user, Guid? organizationId = null) => new(user.Id, organizationId ?? user.OrganizationId, user.Name, user.Email, user.Phone, user.Role, user.Active, user.PhotoUrl, user.DrivingLicensePhotoUrl);
+static LoginResponse CreateLoginResponse(UserAccount user, Guid organizationId, SecurityKey signingKey)
+{
+    var claims = new[]
+    {
+        new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Name, user.Name),
+        new Claim(ClaimTypes.Email, user.Email),
+        new Claim(ClaimTypes.Role, user.Role),
+        new Claim("organization_id", organizationId.ToString())
+    };
+    var token = new JwtSecurityToken(
+        issuer: "GarageHub",
+        audience: "GarageHub.Web",
+        claims: claims,
+        expires: DateTime.UtcNow.AddHours(8),
+        signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
+    return new LoginResponse(new JwtSecurityTokenHandler().WriteToken(token), ToView(user, organizationId));
+}
+static string GarageSlug(string name)
+{
+    var slug = new string(name.Trim().ToLowerInvariant().Select(character => char.IsLetterOrDigit(character) ? character : '-').ToArray());
+    return string.Join('-', slug.Split('-', StringSplitOptions.RemoveEmptyEntries));
+}
 static bool CanAssignRole(ClaimsPrincipal principal, string role) =>
     role != AppRoles.Admin && AppRoles.All.Contains(role) && (principal.IsInRole(AppRoles.Admin) || role != AppRoles.Owner);
 static async Task<UserAccount?> ManageableUser(Guid id, ClaimsPrincipal principal, AppDbContext db)

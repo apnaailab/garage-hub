@@ -76,6 +76,7 @@ export function PortalSyncBridge() {
           applyEnvelope(remote);
         } else {
           const created = await portalApi.save(0, EMPTY_PORTAL_DATA);
+          if (disposed) return;
           if (created.ok) applyEnvelope(created.envelope);
           else applyEnvelope(created.conflict);
         }
@@ -97,11 +98,17 @@ export function PortalSyncBridge() {
       }
     }, 1500);
 
-    return () => {
+    const stopSync = () => {
       disposed = true;
       unsubscribe();
       window.clearInterval(pollTimer);
       window.clearTimeout(saveTimer);
+    };
+    window.addEventListener('garagehub:session-changing', stopSync, { once: true });
+
+    return () => {
+      window.removeEventListener('garagehub:session-changing', stopSync);
+      stopSync();
     };
   }, [organizationId]);
 

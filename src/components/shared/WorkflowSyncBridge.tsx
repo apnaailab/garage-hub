@@ -100,6 +100,7 @@ export function WorkflowSyncBridge() {
           }
           const data = workflowDataSnapshot();
           const created = await workflowApi.save(0, data);
+          if (disposed) return;
           if (created.ok) {
             applyEnvelope(created.envelope);
             localStorage.removeItem('garagehub-workflow-v1');
@@ -126,11 +127,17 @@ export function WorkflowSyncBridge() {
       }
     }, 1500);
 
-    return () => {
+    const stopSync = () => {
       disposed = true;
       unsubscribe();
       window.clearInterval(pollTimer);
       window.clearTimeout(saveTimer);
+    };
+    window.addEventListener('garagehub:session-changing', stopSync, { once: true });
+
+    return () => {
+      window.removeEventListener('garagehub:session-changing', stopSync);
+      stopSync();
     };
   }, [organizationId]);
 

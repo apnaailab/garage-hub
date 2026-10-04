@@ -1,4 +1,9 @@
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:5080/api';
+let sessionToken = localStorage.getItem('garagehub-token');
+
+export function setApiToken(token: string | null) {
+  sessionToken = token;
+}
 
 export interface AuthUser {
   id: string;
@@ -28,11 +33,18 @@ export interface LoginResult {
   user: AuthUser;
 }
 
+export interface OrganizationSummary {
+  id: string;
+  name: string;
+  slug: string;
+  ownerCount: number;
+  activeUserCount: number;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = localStorage.getItem('garagehub-token');
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (sessionToken) headers.set('Authorization', `Bearer ${sessionToken}`);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (response.status === 401) {
     localStorage.removeItem('garagehub-token');
@@ -71,6 +83,23 @@ export const usersApi = {
   setPassword: (id: string, password: string) => api<void>(`/users/${id}/password`, { method: 'PUT', body: JSON.stringify({ password }) }),
 };
 
+export interface CreateOrganizationOwnerInput {
+  garageName: string;
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+export const organizationsApi = {
+  list: () => api<OrganizationSummary[]>('/admin/organizations'),
+  switch: (id: string) => api<LoginResult>(`/admin/organizations/${id}/switch`, { method: 'POST' }),
+  createWithOwner: (input: CreateOrganizationOwnerInput) =>
+    api<{ organization: OrganizationSummary; owner: AuthUser; session: LoginResult }>('/admin/organizations', { method: 'POST', body: JSON.stringify(input) }),
+  update: (id: string, name: string) =>
+    api<OrganizationSummary>(`/admin/organizations/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+};
+
 interface UploadedDocument {
   id: string;
 }
@@ -94,21 +123,19 @@ export const documentsApi = {
 function stateApi(basePath: string) {
   return {
   async get<T>(): Promise<WorkflowEnvelope<T> | null> {
-    const token = localStorage.getItem('garagehub-token');
     const response = await fetch(`${API_URL}/${basePath}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
     });
     if (response.status === 404) return null;
     if (!response.ok) throw new Error(await response.text());
     return response.json() as Promise<WorkflowEnvelope<T>>;
   },
   async save<T>(baseVersion: number, data: T): Promise<WorkflowSaveResult<T>> {
-    const token = localStorage.getItem('garagehub-token');
     const response = await fetch(`${API_URL}/${basePath}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
       },
       body: JSON.stringify({ baseVersion, data }),
     });
