@@ -11,11 +11,13 @@ import { Input, Select, Textarea, Label } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { DamageDiagram } from '@/components/shared/DamageDiagram';
+import { PhotoGallery } from '@/components/shared/PhotoGallery';
 import { SERVICES, CATEGORY_META, serviceById } from '@/lib/workflows';
+import { MIN_EXTERIOR_PHOTOS, MIN_INTERIOR_PHOTOS } from '@/lib/photoRequirements';
 import { searchVehicles, findVehicle, type VehicleRecord } from '@/lib/vehicles';
 import { formatCurrency, formatDate, uid, nowISO, cn } from '@/lib/utils';
 import { uploadImage } from '@/lib/images';
-import type { ConsentLanguage, DamageMarker, DamageType, FuelLevel, InsuranceType, IntakeScenario, JobCard, JobPriority, PhotoTag, ServiceCategory, VehicleItemCondition } from '@/types';
+import type { ConsentLanguage, DamageMarker, DamageType, FuelLevel, InsuranceType, IntakeScenario, JobCard, JobPriority, Photo, PhotoTag, ServiceCategory, VehicleItemCondition } from '@/types';
 
 const schema = z.object({
   vehicleNo: z
@@ -56,8 +58,6 @@ const REFERRAL_SOURCES = [
   'Insurance',
   'Other',
 ];
-const MIN_EXTERIOR = 8;
-const MIN_INTERIOR = 2;
 const VEHICLE_ITEMS = ['Service Book', 'Manual', 'Floor Mat Set', 'Idol', 'Mud Flaps', 'Spare Tire', 'Jack', 'Handle', 'Wheel Caps', 'Safety Triangle', 'Dicky Mat', 'Tool Kit', 'Air Freshener', 'Speakers', 'Stereo', 'Key Chain'];
 
 export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
@@ -72,16 +72,23 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
   const [created, setCreated] = useState<JobCard | null>(null);
   const [showSuggest, setShowSuggest] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleRecord | null>(null);
-  const [entryPhotos, setEntryPhotos] = useState<{ url: string; tag: PhotoTag }[]>([]);
+  const [entryPhotos, setEntryPhotos] = useState<Photo[]>([]);
   const [vehicleItems, setVehicleItems] = useState<Record<string, VehicleItemCondition | ''>>({});
 
   const extCount = entryPhotos.filter((p) => p.tag === 'exterior').length;
   const intCount = entryPhotos.filter((p) => p.tag === 'interior').length;
-  const photosOk = extCount >= MIN_EXTERIOR && intCount >= MIN_INTERIOR;
+  const photosOk = extCount >= MIN_EXTERIOR_PHOTOS && intCount >= MIN_INTERIOR_PHOTOS;
 
   const capturePhotos = async (tag: PhotoTag, files: File[]) => {
     if (!files.length) return;
-    const photos = await Promise.all(files.map(async (file) => ({ url: await uploadImage(file, `intake-${tag}`), tag })));
+    const photos = await Promise.all(files.map(async (file) => ({
+      id: uid('ph'),
+      url: await uploadImage(file, `intake-${tag}`),
+      tag,
+      caption: tag === 'exterior' ? 'Exterior condition' : 'Interior condition',
+      uploadedBy: 'Reception',
+      uploadedAt: nowISO(),
+    })));
     setEntryPhotos((current) => [...current, ...photos]);
   };
 
@@ -179,14 +186,7 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
         .filter((entry): entry is [string, VehicleItemCondition] => Boolean(entry[1]))
         .map(([name, condition]) => ({ name, condition })),
       damageMarkers: markers,
-      photos: entryPhotos.map((p) => ({
-        id: uid('ph'),
-        url: p.url,
-        tag: p.tag,
-        caption: p.tag === 'exterior' ? 'Exterior condition' : 'Interior condition',
-        uploadedBy: 'Reception',
-        uploadedAt: nowISO(),
-      })),
+      photos: entryPhotos,
       parts: [],
       notes: [],
       createdAt: nowISO(),
@@ -437,22 +437,23 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
                 </span>
               </div>
               <p className="mb-3 text-xs text-ink-400">
-                Minimum {MIN_EXTERIOR} exterior + {MIN_INTERIOR} interior photos to record condition & damage.
+                Minimum {MIN_EXTERIOR_PHOTOS} exterior + {MIN_INTERIOR_PHOTOS} interior photos to record condition & damage.
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <PhotoCounter
                   label="Exterior"
                   count={extCount}
-                  min={MIN_EXTERIOR}
+                  min={MIN_EXTERIOR_PHOTOS}
                   onAdd={(files) => capturePhotos('exterior', files)}
                 />
                 <PhotoCounter
                   label="Interior"
                   count={intCount}
-                  min={MIN_INTERIOR}
+                  min={MIN_INTERIOR_PHOTOS}
                   onAdd={(files) => capturePhotos('interior', files)}
                 />
               </div>
+              {entryPhotos.length > 0 && <div className="mt-4"><PhotoGallery photos={entryPhotos} /></div>}
             </CardContent>
           </Card>
 
@@ -559,8 +560,8 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
               )}
               {!photosOk && (
                 <p className="mt-3 text-xs text-amber-600">
-                  Add {Math.max(MIN_EXTERIOR - extCount, 0)} more exterior &{' '}
-                  {Math.max(MIN_INTERIOR - intCount, 0)} more interior photos.
+                  Add {Math.max(MIN_EXTERIOR_PHOTOS - extCount, 0)} more exterior &{' '}
+                  {Math.max(MIN_INTERIOR_PHOTOS - intCount, 0)} more interior photos.
                 </p>
               )}
               <Button

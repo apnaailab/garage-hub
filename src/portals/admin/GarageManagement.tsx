@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Input, Label } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
 import { organizationsApi, type OrganizationSummary } from '@/lib/api';
+import { compressImage } from '@/lib/images';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -95,7 +96,8 @@ export function GarageManagement() {
     setBusyId(logoTarget.id);
     setError('');
     try {
-      await organizationsApi.uploadLogo(logoTarget.id, file);
+      const compressedLogo = await compressImage(file, 1024, 0.72, 'image/webp');
+      await organizationsApi.uploadLogo(logoTarget.id, compressedLogo);
       await refresh(logoTarget.id === currentOrganizationId);
       setMessage(`${logoTarget.name} logo was updated.`);
     } catch (reason) {

@@ -7,6 +7,7 @@ import type {
   ServiceWorkStatus,
   JobCard,
 } from '@/types';
+import { MIN_EXTERIOR_PHOTOS, MIN_INTERIOR_PHOTOS } from './photoRequirements';
 
 // ---------------------------------------------------------------------------
 // Workflow stages (the service pipeline)
@@ -179,8 +180,8 @@ const STAGE_TASK_TEMPLATES: Record<StageId, { label: string; hint?: string }[]> 
   entry: [
     { label: 'Verify vehicle & customer details' },
     { label: 'Record customer concerns' },
-    { label: 'Capture 8 exterior photos', hint: 'mandatory' },
-    { label: 'Capture 2 interior photos', hint: 'mandatory' },
+    { label: `Capture ${MIN_EXTERIOR_PHOTOS} exterior photos`, hint: 'mandatory' },
+    { label: `Capture ${MIN_INTERIOR_PHOTOS} interior photo`, hint: 'mandatory' },
     { label: 'Assign a technician' },
   ],
   estimate: [

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { MIN_EXTERIOR_PHOTOS, MIN_INTERIOR_PHOTOS } from '@/lib/photoRequirements';
 
 export const WORKFLOW_STAGES = [
   'pending-for-pickup',
@@ -134,7 +135,7 @@ function gate(job: WorkflowJob): string | null {
       if (!requiredDocs) return 'Upload RC and insurance documents.';
       if (!requiredConsents) return 'Sign all three pickup disclosures.';
       if (job.pickupStatus !== 'at-workshop') return 'Complete the driver pickup and workshop arrival.';
-      if (job.exteriorPhotos < 8 || job.interiorPhotos < 2 || !job.handoverSigned) return 'Capture 8 exterior, 2 interior photos and customer handover signature.';
+      if (job.exteriorPhotos < MIN_EXTERIOR_PHOTOS || job.interiorPhotos < MIN_INTERIOR_PHOTOS || !job.handoverSigned) return `Capture ${MIN_EXTERIOR_PHOTOS} exterior, ${MIN_INTERIOR_PHOTOS} interior photo and customer handover signature.`;
       return null;
     }
     case 'pending-from-technician':
