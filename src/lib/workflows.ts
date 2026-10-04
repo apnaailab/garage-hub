@@ -95,7 +95,6 @@ export const ROLE_META: Record<Role, { label: string; tagline: string; icon: str
   admin: { label: 'Admin', tagline: 'Protected account administration', icon: 'ShieldCheck' },
   owner: { label: 'Owner', tagline: 'Approvals, audit & profitability', icon: 'Crown' },
   manager: { label: 'Workshop Manager', tagline: 'Operations command center', icon: 'LayoutDashboard' },
-  receptionist: { label: 'Receptionist', tagline: 'Intake & scheduling desk', icon: 'ClipboardList' },
   driver: { label: 'Driver', tagline: 'Pickup, handover & delivery', icon: 'Truck' },
   mechanic: { label: 'Mechanic / Technician', tagline: 'Your assigned tasks', icon: 'Wrench' },
   'head-mechanic': { label: 'Head Mechanic', tagline: 'Trial & quality control', icon: 'ShieldCheck' },

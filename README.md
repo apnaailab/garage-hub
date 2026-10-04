@@ -41,13 +41,12 @@ npm run preview   # preview the production build
 
 | Role | Views |
 | --- | --- |
-| **Owner** | Secure command center, approvals, audit and profitability foundation |
-| **Workshop Manager** | Dashboard (metrics, pipeline, bottlenecks), Service Board, Staff & Reports |
-| **Receptionist** | Express Intake (validated job-card form + damage overlay), Job Cards (print / WhatsApp share), Pickup & Drop scheduler |
+| **Owner** | Secure command center, approvals, audit, Express Intake, Job Cards, Vehicle History and Pickup & Drop |
+| **Workshop Manager** | Dashboard, Service Board, Staff & Reports, Express Intake, Job Cards, Vehicle History and Pickup & Drop |
 | **Driver** | Pickup/delivery queue and handover requirements |
 | **Mechanic** | Mobile task view — checklist, stage updates, camera photo capture, parts & notes |
 | **Head Mechanic** | Quality/trial queue |
-| **Accountant** | Inventory, parts approvals, billing and payment |
+| **Accountant** | Inventory, parts approvals, billing, payment, Express Intake, Job Cards, Vehicle History and Pickup & Drop |
 | **Washing / WA-WB** | Department completion queues |
 | **CRM Executive** | Customer reminder and campaign queue |
 | **Customer** | Live service tracker (pizza-tracker style), approvals & itemized invoice / payment |
@@ -80,7 +79,7 @@ and Commercial & Value-Add — each with its own workflow.
 ```
 src/
   components/   ui primitives, layout, shared widgets
-  portals/      manager · receptionist · mechanic · customer
+  portals/      manager · intake operations · mechanic · customer
   store/        Zustand store + selectors
   lib/          workflows, nav, roles, helpers
   types/        domain types

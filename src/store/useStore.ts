@@ -77,7 +77,6 @@ const DEFAULT_PAGE: Record<Role, string> = {
   admin: 'dashboard',
   owner: 'dashboard',
   manager: 'dashboard',
-  receptionist: 'intake',
   driver: 'operations',
   mechanic: 'tasks',
   'head-mechanic': 'operations',

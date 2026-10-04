@@ -6,7 +6,6 @@ export type Role =
   | 'admin'
   | 'owner'
   | 'manager'
-  | 'receptionist'
   | 'driver'
   | 'mechanic'
   | 'head-mechanic'

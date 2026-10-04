@@ -39,17 +39,16 @@ export default function App() {
     if (role === 'driver' || role === 'head-mechanic' || role === 'washing' || role === 'wheel-alignment' || role === 'crm') {
       return <OperationsCenter />;
     }
+    if (role === 'owner' || role === 'manager' || role === 'accountant') {
+      if (page === 'intake') return <Intake onPrint={onPrint} />;
+      if (page === 'jobcards') return <JobCards onPrint={onPrint} />;
+      if (page === 'scheduler') return <Scheduler />;
+    }
     if (role === 'admin' || role === 'owner' || role === 'manager') {
       if (page === 'board') return <ServiceBoard onPrint={onPrint} />;
       if (page === 'vehicles') return <Vehicles onPrint={onPrint} />;
       if (page === 'staff') return <StaffManagement onPrint={onPrint} />;
       return <Dashboard onPrint={onPrint} />;
-    }
-    if (role === 'receptionist') {
-      if (page === 'jobcards') return <JobCards onPrint={onPrint} />;
-      if (page === 'vehicles') return <Vehicles onPrint={onPrint} />;
-      if (page === 'scheduler') return <Scheduler />;
-      return <Intake onPrint={onPrint} />;
     }
     if (role === 'mechanic') {
       return <TaskView />;

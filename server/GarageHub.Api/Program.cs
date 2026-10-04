@@ -36,6 +36,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
         IssuerSigningKey = signingKey,
         ClockSkew = TimeSpan.FromMinutes(1)
     };
+    options.Events = new JwtBearerEvents
+    {
+        OnTokenValidated = context =>
+        {
+            var role = context.Principal?.FindFirstValue(ClaimTypes.Role);
+            if (role is null || !AppRoles.All.Contains(role)) context.Fail("This account role is no longer supported.");
+            return Task.CompletedTask;
+        }
+    };
 });
 builder.Services.AddAuthorization();
 builder.Services.AddSingleton<IMessageDelivery, LocalMessageDelivery>();
@@ -79,7 +88,7 @@ app.MapPost("/api/auth/login", async (LoginRequest request, AppDbContext db) =>
 {
     var email = request.Email.Trim().ToLowerInvariant();
     var user = await db.Users.SingleOrDefaultAsync(x => x.Email == email && x.Active);
-    if (user is null || !Passwords.Verify(request.Password, user.PasswordHash))
+    if (user is null || !AppRoles.All.Contains(user.Role) || !Passwords.Verify(request.Password, user.PasswordHash))
         return Results.Unauthorized();
 
     var claims = new[]
@@ -321,7 +330,7 @@ api.MapPost("/jobs", async (Job job, ClaimsPrincipal principal, AppDbContext db)
     Audit(db, principal, "create", "job", job.Id, job.Number);
     await db.SaveChangesAsync();
     return Results.Created($"/api/jobs/{job.Id}", job);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
 
 api.MapPatch("/jobs/{id:guid}/stage", async (Guid id, JobStageRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -422,7 +431,7 @@ api.MapGet("/pickups", async (ClaimsPrincipal principal, AppDbContext db) =>
     if (principal.IsInRole(AppRoles.Driver)) query = query.Where(x => x.DriverId == userId);
     var result = await query.ToListAsync();
     return Results.Ok(result.OrderBy(x => x.ScheduledAt));
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Driver));
 
 api.MapPost("/pickups", async (PickupAssignment assignment, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -437,7 +446,7 @@ api.MapPost("/pickups", async (PickupAssignment assignment, ClaimsPrincipal prin
     Audit(db, principal, "assign", "pickup", assignment.Id, assignment.DriverId.ToString());
     await db.SaveChangesAsync();
     return Results.Created($"/api/pickups/{assignment.Id}", assignment);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
 
 api.MapPatch("/pickups/{id:guid}/status", async (Guid id, JobStageRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -453,7 +462,7 @@ api.MapPatch("/pickups/{id:guid}/status", async (Guid id, JobStageRequest reques
     Audit(db, principal, "change-status", "pickup", id, request.Stage);
     await db.SaveChangesAsync();
     return Results.Ok(pickup);
-}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Receptionist, AppRoles.Driver));
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant, AppRoles.Driver));
 
 api.MapPost("/attendance", async (AttendanceRequest request, ClaimsPrincipal principal, AppDbContext db) =>
 {

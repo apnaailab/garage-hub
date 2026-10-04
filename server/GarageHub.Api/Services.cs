@@ -158,7 +158,6 @@ public static class SeedData
         {
             ("Garage Owner", AppRoles.Owner),
             ("Workshop Manager", AppRoles.Manager),
-            ("Reception Desk", AppRoles.Receptionist),
             ("Pickup Driver", AppRoles.Driver),
             ("Technician", AppRoles.Mechanic),
             ("Head Mechanic", AppRoles.HeadMechanic),

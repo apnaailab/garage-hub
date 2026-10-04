@@ -30,7 +30,6 @@ interface ApiJob {
 const ROLE_GUIDANCE: Record<string, string[]> = {
   owner: ['Approve estimates and invoices', 'Review profit, audit and workshop bottlenecks', 'Monitor all staff and customer notifications'],
   manager: ['Control intake, estimates and job allocation', 'Approve changes to customer voice and labour', 'Coordinate pickup, workshop and delivery'],
-  receptionist: ['Register customers, vehicles and documents', 'Create walk-in and pickup job cards', 'Capture accessories, fuel, photos and signatures'],
   driver: ['Review pickup address, phone and directions', 'Share ETA and capture mandatory condition photos', 'Confirm pickup, arrival, delivery and cash collection'],
   mechanic: ['Accept assigned jobs and complete checklists', 'Request parts and record work time', 'Pause, resume and complete approved work'],
   'head-mechanic': ['Monitor technician queues', 'Conduct final trials and quality checks', 'Route pending washing and WA/WB work'],

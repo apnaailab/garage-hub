@@ -6,7 +6,6 @@ public static class AppRoles
     public const string Admin = "admin";
     public const string Owner = "owner";
     public const string Manager = "manager";
-    public const string Receptionist = "receptionist";
     public const string Driver = "driver";
     public const string Mechanic = "mechanic";
     public const string HeadMechanic = "head-mechanic";
@@ -17,11 +16,11 @@ public static class AppRoles
     public const string Customer = "customer";
 
     public static readonly string[] All =
-    [Admin, Owner, Manager, Receptionist, Driver, Mechanic, HeadMechanic, Accountant, Washing, WheelAlignment, Crm, Customer];
+    [Admin, Owner, Manager, Driver, Mechanic, HeadMechanic, Accountant, Washing, WheelAlignment, Crm, Customer];
 
     public const string Leadership = Admin + "," + Owner + "," + Manager;
     public const string CustomerData = Admin + "," + Owner + "," + Manager + "," + Accountant;
-    public const string Workshop = Admin + "," + Owner + "," + Manager + "," + Receptionist + "," + Mechanic + "," + HeadMechanic;
+    public const string Workshop = Admin + "," + Owner + "," + Manager + "," + Accountant + "," + Mechanic + "," + HeadMechanic;
 }
 
 public abstract class Entity

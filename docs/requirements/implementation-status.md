@@ -22,7 +22,7 @@ Last reviewed: 2026-09-17
 | --- | --- | --- |
 | API and database | Implemented | ASP.NET Core 8 API, EF Core, SQLite local development, PostgreSQL production provider. |
 | Authentication | Implemented | JWT login with PBKDF2 password hashing and eight-hour sessions. |
-| Actor roles | Implemented | Owner, Workshop Manager, Receptionist, Driver, Technician, Head Mechanic, Accountant, Washing, WA/WB, CRM Executive, Customer. |
+| Actor roles | Implemented | Owner, Workshop Manager, Driver, Technician, Head Mechanic, Accountant, Washing, WA/WB, CRM Executive, Customer. Owner, Workshop Manager and Accountant share intake, job-card, vehicle-history and pickup/drop permissions. |
 | Role access | Implemented | API policies restrict customer personal data, users, inventory, audit, pickup, and actor-specific job queues. |
 | Audit trail | Foundation | Job creation/stage changes, inventory creation, and notification scheduling are audited. More mutations must be added. |
 | Notification scheduler | Foundation | Persistent reminders and queued notifications with a local delivery adapter. Real WhatsApp/SMS/push providers remain. |

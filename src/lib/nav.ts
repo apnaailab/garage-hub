@@ -31,20 +31,20 @@ export const NAV: Record<Role, NavItem[]> = {
   owner: [
     { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { page: 'board', label: 'Service Board', icon: KanbanSquare },
+    { page: 'intake', label: 'Express Intake', icon: ClipboardPlus },
+    { page: 'jobcards', label: 'Job Cards', icon: FileText },
     { page: 'vehicles', label: 'Vehicle History', icon: Car },
+    { page: 'scheduler', label: 'Pickup & Drop', icon: Truck },
     { page: 'staff', label: 'Staff & Access', icon: Users },
   ],
   manager: [
     { page: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { page: 'board', label: 'Service Board', icon: KanbanSquare },
-    { page: 'vehicles', label: 'Vehicle History', icon: Car },
-    { page: 'staff', label: 'Staff & Reports', icon: Users },
-  ],
-  receptionist: [
     { page: 'intake', label: 'Express Intake', icon: ClipboardPlus },
     { page: 'jobcards', label: 'Job Cards', icon: FileText },
     { page: 'vehicles', label: 'Vehicle History', icon: Car },
     { page: 'scheduler', label: 'Pickup & Drop', icon: Truck },
+    { page: 'staff', label: 'Staff & Reports', icon: Users },
   ],
   driver: [
     { page: 'operations', label: 'Pickup & Delivery', icon: Truck },
@@ -58,7 +58,10 @@ export const NAV: Record<Role, NavItem[]> = {
   accountant: [
     { page: 'billing', label: 'Billing', icon: Wallet },
     { page: 'parts', label: 'Parts Approvals', icon: PackageCheck },
+    { page: 'intake', label: 'Express Intake', icon: ClipboardPlus },
+    { page: 'jobcards', label: 'Job Cards', icon: FileText },
     { page: 'vehicles', label: 'Vehicle History', icon: Car },
+    { page: 'scheduler', label: 'Pickup & Drop', icon: Truck },
   ],
   washing: [
     { page: 'operations', label: 'Washing Queue', icon: ListChecks },
