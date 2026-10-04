@@ -41,6 +41,11 @@ export interface OrganizationSummary {
   activeUserCount: number;
 }
 
+export interface OrganizationIdentity {
+  id: string;
+  name: string;
+}
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
@@ -92,6 +97,7 @@ export interface CreateOrganizationOwnerInput {
 }
 
 export const organizationsApi = {
+  current: () => api<OrganizationIdentity>('/organization'),
   list: () => api<OrganizationSummary[]>('/admin/organizations'),
   switch: (id: string) => api<LoginResult>(`/admin/organizations/${id}/switch`, { method: 'POST' }),
   createWithOwner: (input: CreateOrganizationOwnerInput) =>

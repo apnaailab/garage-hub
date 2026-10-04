@@ -184,6 +184,16 @@ api.MapGet("/me", async (ClaimsPrincipal principal, AppDbContext db) =>
     return user is null ? Results.NotFound() : Results.Ok(ToView(user, OrganizationId(principal)));
 });
 
+api.MapGet("/organization", async (ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var organizationId = OrganizationId(principal);
+    var organization = await db.Organizations.AsNoTracking()
+        .Where(x => x.Id == organizationId)
+        .Select(x => new OrganizationIdentityView(x.Id, x.Name))
+        .SingleOrDefaultAsync();
+    return organization is null ? Results.NotFound() : Results.Ok(organization);
+});
+
 api.MapGet("/admin/organizations", async (AppDbContext db) =>
     Results.Ok(await db.Organizations.AsNoTracking()
         .OrderBy(x => x.Name)

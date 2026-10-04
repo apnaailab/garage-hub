@@ -246,6 +246,7 @@ public record SetUserActiveRequest(bool Active);
 public record SetUserPasswordRequest(string Password);
 public record LoginResponse(string Token, UserView User);
 public record UserView(Guid Id, Guid OrganizationId, string Name, string Email, string Phone, string Role, bool Active, string? PhotoUrl, string? DrivingLicensePhotoUrl);
+public record OrganizationIdentityView(Guid Id, string Name);
 public record OrganizationView(Guid Id, string Name, string Slug, int OwnerCount, int ActiveUserCount);
 public record OrganizationOwnerResponse(OrganizationView Organization, UserView Owner, LoginResponse Session);
 public record WorkflowStateRequest(long BaseVersion, System.Text.Json.JsonElement Data);

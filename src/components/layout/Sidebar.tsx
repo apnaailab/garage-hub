@@ -1,5 +1,6 @@
 import { Wrench } from 'lucide-react';
 import { useStore } from '@/store/useStore';
+import { useAuthStore } from '@/store/useAuthStore';
 import { NAV } from '@/lib/nav';
 import { ROLE_META } from '@/lib/workflows';
 import { cn } from '@/lib/utils';
@@ -8,6 +9,7 @@ export function Sidebar() {
   const role = useStore((s) => s.role);
   const page = useStore((s) => s.page);
   const setPage = useStore((s) => s.setPage);
+  const garageName = useAuthStore((s) => s.garageName);
   const items = NAV[role];
 
   return (
@@ -16,8 +18,8 @@ export function Sidebar() {
         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-600 text-white shadow-lg shadow-brand-600/30">
           <Wrench className="h-5 w-5" />
         </span>
-        <div className="leading-tight">
-          <p className="text-lg font-extrabold tracking-tight">GarageHub</p>
+        <div className="min-w-0 leading-tight">
+          <p className="truncate text-lg font-extrabold tracking-tight" title={garageName ?? 'Your garage'}>{garageName ?? 'Your garage'}</p>
           <p className="text-[10px] font-medium uppercase tracking-wider text-ink-400">
             Service Ops
           </p>
@@ -50,12 +52,9 @@ export function Sidebar() {
       </nav>
 
       <div className="border-t border-ink-100 p-4 dark:border-ink-800">
-        <div className="rounded-xl bg-gradient-to-br from-brand-600 to-brand-800 p-4 text-white">
-          <p className="text-xs font-semibold opacity-90">Secure workspace</p>
-          <p className="mt-1 text-[11px] opacity-70">
-            Access is restricted to your assigned workshop role.
-          </p>
-        </div>
+        <p className="text-[10px] font-medium uppercase tracking-wider text-ink-400">Powered by</p>
+        <p className="mt-0.5 text-sm font-extrabold text-ink-700 dark:text-ink-200">GarageHub</p>
+        <p className="mt-1 text-[11px] text-ink-400">Workshop management platform</p>
       </div>
     </aside>
   );

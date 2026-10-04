@@ -8,6 +8,7 @@ import { StageBadge } from '@/components/shared/StatusPill';
 export function Header() {
   const theme = useStore((s) => s.theme);
   const toggleTheme = useStore((s) => s.toggleTheme);
+  const garageName = useAuthStore((s) => s.garageName);
 
   return (
     <header className="no-print z-30 flex h-16 shrink-0 items-center gap-2 border-b border-ink-200 bg-white/80 px-3 backdrop-blur-xl dark:border-ink-800 dark:bg-ink-900/80 sm:gap-3 sm:px-6">
@@ -16,7 +17,7 @@ export function Header() {
         <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">
           <Wrench className="h-4 w-4" />
         </span>
-        <span className="hidden font-extrabold sm:inline">GarageHub</span>
+        <span className="max-w-24 truncate text-xs font-extrabold sm:max-w-36 sm:text-sm" title={garageName ?? 'Your garage'}>{garageName ?? 'Your garage'}</span>
       </div>
 
       <GlobalSearch />
