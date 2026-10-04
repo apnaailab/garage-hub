@@ -35,6 +35,14 @@ only when a separate trusted web origin must call the API.
 
 On the first startup, EF Core applies the migrations and creates only the configured owner when the database is empty. After the first owner exists, remove the three `Bootstrap__*` secrets from the host. Demo users, customers, vehicles, jobs, and inventory are disabled in production.
 
+### Protected admin recovery
+
+If the protected admin cannot sign in, temporarily set `AdminRecovery__Password` in
+Render to a new password of at least 12 characters. The next deployment creates or
+reactivates `apnaailab@gmail.com` as the protected admin and sets that password.
+After a successful sign-in, remove `AdminRecovery__Password` immediately and allow
+Render to redeploy. The application never exposes a public password-reset endpoint.
+
 ## 3. Enter testing data
 
 1. Sign in using the bootstrap owner.

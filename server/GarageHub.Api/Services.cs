@@ -107,6 +107,38 @@ public static class SeedData
 
         if (await db.Users.AnyAsync())
         {
+            var recoveryPassword = configuration["AdminRecovery:Password"];
+            if (!string.IsNullOrWhiteSpace(recoveryPassword))
+            {
+                if (recoveryPassword.Length < 12)
+                    throw new InvalidOperationException("AdminRecovery__Password must contain at least 12 characters.");
+
+                var protectedAdmin = await db.Users.SingleOrDefaultAsync(x => x.Email == AppRoles.ProtectedAdminEmail);
+                if (protectedAdmin is null)
+                {
+                    var organizationId = await db.Organizations.Select(x => x.Id).SingleAsync();
+                    protectedAdmin = new UserAccount
+                    {
+                        OrganizationId = organizationId,
+                        Name = "System Admin",
+                        Email = AppRoles.ProtectedAdminEmail,
+                        Phone = string.Empty,
+                        Role = AppRoles.Admin,
+                        PasswordHash = Passwords.Hash(recoveryPassword)
+                    };
+                    db.Users.Add(protectedAdmin);
+                }
+                else
+                {
+                    protectedAdmin.Name = "System Admin";
+                    protectedAdmin.Role = AppRoles.Admin;
+                    protectedAdmin.Active = true;
+                    protectedAdmin.PasswordHash = Passwords.Hash(recoveryPassword);
+                    protectedAdmin.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                await db.SaveChangesAsync();
+            }
+
             var legacyOwner = await db.Users.SingleOrDefaultAsync(x => x.Email == "owner@garagehub.local" && x.Name == "Shree Auto Owner");
             if (legacyOwner is not null)
             {
