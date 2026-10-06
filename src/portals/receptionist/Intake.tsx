@@ -3,7 +3,7 @@ import { useForm } from 'react-hook-form';
 import type { UseFormRegister } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Check, Printer, Sparkles, Plus, Car, History, Clock, Wrench, Camera } from 'lucide-react';
+import { Check, Printer, Sparkles, Plus, Car, History, Clock, Wrench, Camera, MessageCircle } from 'lucide-react';
 import { useStore } from '@/store/useStore';
 import { PageHeader } from '@/components/layout/AppShell';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -17,6 +17,7 @@ import { MIN_EXTERIOR_PHOTOS, MIN_INTERIOR_PHOTOS } from '@/lib/photoRequirement
 import { searchVehicles, findVehicle, type VehicleRecord } from '@/lib/vehicles';
 import { formatCurrency, formatDate, uid, nowISO, cn } from '@/lib/utils';
 import { uploadImage } from '@/lib/images';
+import { customerPortalApi, type CustomerPortalCredential } from '@/lib/api';
 import type { ConsentLanguage, DamageMarker, DamageType, FuelLevel, InsuranceType, IntakeScenario, JobCard, JobPriority, Photo, PhotoTag, ServiceCategory, VehicleItemCondition } from '@/types';
 
 const schema = z.object({
@@ -70,6 +71,9 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
   const [markers, setMarkers] = useState<DamageMarker[]>([]);
   const [damageType, setDamageType] = useState<DamageType>('scratch');
   const [created, setCreated] = useState<JobCard | null>(null);
+  const [portalCredential, setPortalCredential] = useState<CustomerPortalCredential | null>(null);
+  const [intakeError, setIntakeError] = useState('');
+  const [creating, setCreating] = useState(false);
   const [showSuggest, setShowSuggest] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<VehicleRecord | null>(null);
   const [entryPhotos, setEntryPhotos] = useState<Photo[]>([]);
@@ -143,19 +147,13 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
     setShowSuggest(false);
   };
 
-  const onSubmit = (data: FormValues) => {
+  const onSubmit = async (data: FormValues) => {
     if (services.length === 0 || !photosOk) return;
+    setCreating(true);
+    setIntakeError('');
     // Returning vehicle → reuse the existing customer; new vehicle → create one.
     const known = findVehicle(jobs, data.vehicleNo);
     const customerId = known ? known.customerId : uid('cus');
-    if (!known) {
-      addCustomer({
-        id: customerId,
-        name: data.customerName,
-        phone: data.customerPhone,
-        address: data.customerAddress,
-      });
-    }
 
     let estimateReadyBy: string | undefined;
     if (data.estimateTime) {
@@ -165,8 +163,12 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
       estimateReadyBy = d.toISOString();
     }
 
-    const job: JobCard = {
-      id: `JC-${Math.floor(2048 + Math.random() * 900)}`,
+    const jobId = uid('JC').toUpperCase();
+    try {
+      const credential = await customerPortalApi.issue(jobId, customerId, data.customerPhone);
+      const job: JobCard = {
+      id: jobId,
+      trackingId: credential.trackingId,
       vehicleNo: data.vehicleNo,
       make: data.make,
       model: data.model,
@@ -216,9 +218,23 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
             },
           }
         : {}),
-    };
-    addJob(job);
-    setCreated(job);
+      };
+      if (!known) {
+        addCustomer({
+          id: customerId,
+          name: data.customerName,
+          phone: data.customerPhone,
+          address: data.customerAddress,
+        });
+      }
+      addJob(job);
+      setPortalCredential(credential);
+      setCreated(job);
+    } catch (reason) {
+      setIntakeError(reason instanceof Error ? reason.message : 'Unable to create customer tracking access.');
+    } finally {
+      setCreating(false);
+    }
   };
 
   const resetAll = () => {
@@ -228,6 +244,8 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
     setEntryPhotos([]);
     setVehicleItems({});
     setCreated(null);
+    setPortalCredential(null);
+    setIntakeError('');
     setSelectedVehicle(null);
   };
 
@@ -245,6 +263,23 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
           <p className="mt-4 inline-block rounded-lg bg-ink-900 px-3 py-1.5 font-mono text-sm font-bold text-white dark:bg-brand-600">
             {created.id}
           </p>
+          {portalCredential && (
+            <div className="mt-4 border-t border-ink-100 pt-4 dark:border-ink-800">
+              <p className="text-xs font-semibold uppercase text-ink-400">Customer tracking ID</p>
+              <p className="mt-1 font-mono text-lg font-extrabold">{portalCredential.trackingId}</p>
+              <Button
+                className="mt-3 w-full"
+                variant="success"
+                onClick={() => {
+                  const link = `${window.location.origin}/track`;
+                  const message = `Track your ${created.make} ${created.model} service at ${link}\nTracking ID: ${portalCredential.trackingId}\nUse the last 4 digits of your mobile number to open it.`;
+                  window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                <MessageCircle className="h-4 w-4" /> Share on WhatsApp
+              </Button>
+            </div>
+          )}
           <div className="mt-6 flex gap-3">
             <Button variant="outline" className="flex-1" onClick={resetAll}>
               <Plus className="h-4 w-4" /> New Intake
@@ -564,13 +599,14 @@ export function Intake({ onPrint }: { onPrint: (id: string) => void }) {
                   {Math.max(MIN_INTERIOR_PHOTOS - intCount, 0)} more interior photos.
                 </p>
               )}
+              {intakeError && <p className="mt-3 text-sm font-medium text-rose-600">{intakeError}</p>}
               <Button
                 type="submit"
                 size="lg"
                 className="mt-4 w-full"
-                disabled={services.length === 0 || !photosOk}
+                disabled={services.length === 0 || !photosOk || creating}
               >
-                Create Job Card
+                <Sparkles className="h-4 w-4" /> {creating ? 'Creating…' : 'Create Job Card'}
               </Button>
             </CardContent>
           </Card>

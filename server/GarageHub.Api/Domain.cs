@@ -67,6 +67,17 @@ public sealed class PortalSnapshot : Entity
     public Guid UpdatedById { get; set; }
 }
 
+public sealed class CustomerPortalAccess : Entity
+{
+    public Guid OrganizationId { get; set; }
+    public required string JobId { get; set; }
+    public required string CustomerId { get; set; }
+    public required string PublicId { get; set; }
+    public required string PhoneLastFour { get; set; }
+    public DateTimeOffset? RevokedAt { get; set; }
+    public DateTimeOffset? LastAccessedAt { get; set; }
+}
+
 public sealed class CustomerProfile : Entity
 {
     public Guid OrganizationId { get; set; }
@@ -253,6 +264,9 @@ public record OrganizationIdentityView(Guid Id, string Name, string? LogoUrl);
 public record OrganizationView(Guid Id, string Name, string Slug, int OwnerCount, int ActiveUserCount, bool Archived, string? LogoUrl);
 public record WorkflowStateRequest(long BaseVersion, System.Text.Json.JsonElement Data);
 public record WorkflowStateResponse(long Version, System.Text.Json.JsonElement Data, DateTimeOffset UpdatedAt, Guid UpdatedById);
+public record CreateCustomerPortalAccessRequest(string JobId, string CustomerId, string CustomerPhone);
+public record CustomerPortalLoginRequest(string TrackingId, string? PhoneLastFour);
+public record CustomerPortalActionRequest(string Action, string? PartId, bool? Approved, string? SignerName);
 public record AttendanceRequest(string EventType);
 public record JobStageRequest(string Stage);
 public record EstimateActionRequest(string Action, string? SelectedItemsJson);

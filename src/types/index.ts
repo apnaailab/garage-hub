@@ -141,6 +141,7 @@ export type ServiceWorkStatus = 'pending' | 'in-progress' | 'complete' | 'blocke
 
 export interface JobCard {
   id: string;
+  trackingId?: string;
   vehicleNo: string;
   make: string;
   model: string;
@@ -159,6 +160,7 @@ export interface JobCard {
   intakeScenario?: IntakeScenario;
   insuranceType?: InsuranceType;
   consentLanguage?: ConsentLanguage;
+  customerConsent?: { signerName: string; acceptedAt: string };
   vehicleItems?: VehicleItemRecord[];
   damageMarkers: DamageMarker[];
   photos: Photo[];

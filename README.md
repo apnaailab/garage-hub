@@ -27,6 +27,12 @@ Development mode can seed local actors for UI exploration. Production disables d
 seeding and bootstraps one owner from environment variables; that owner creates real
 organization accounts from **Staff & Access**.
 
+Local data is stored in `server/GarageHub.Api/garagehub-v3.db`, resolved from the API
+content root so it remains stable regardless of the terminal working directory. Startup
+applies additive EF Core migrations and never recreates or deletes this database. Use a
+separate `ConnectionStrings__GarageHub=Data Source=<test-file>.db` for disposable tests;
+never run test cleanup against the default database.
+
 Other scripts:
 
 ```bash
@@ -90,6 +96,8 @@ src/
 Set `ConnectionStrings__GarageHub` to the Supabase PostgreSQL Session pooler,
 `Jwt__Key` to a long random secret, and configure the private Supabase Storage adapter.
 See [docs/SUPABASE_DEPLOYMENT.md](docs/SUPABASE_DEPLOYMENT.md) for the complete runbook.
+Production refuses to start with SQLite, preventing a deployment from silently writing
+business data into an ephemeral container filesystem.
 
 Authenticated users receive their organization identity from the server. Workflow
 reads and versioned writes are scoped from that trusted JWT claim; clients poll for

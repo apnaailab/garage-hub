@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
 namespace GarageHub.Api;
@@ -100,10 +101,11 @@ public static class SeedData
 {
     public static async Task EnsureAsync(AppDbContext db, IConfiguration configuration, IWebHostEnvironment environment)
     {
-        if (configuration.GetValue("Database:ApplyMigrations", !environment.IsDevelopment()))
+        if (configuration.GetValue("Database:ApplyMigrations", true))
+        {
+            await BaselineLegacySqliteAsync(db);
             await db.Database.MigrateAsync();
-        else
-            await db.Database.EnsureCreatedAsync();
+        }
 
         if (await db.Users.AnyAsync())
         {
@@ -267,5 +269,70 @@ public static class SeedData
             new InventoryPart { OrganizationId = organization.Id, Sku = "WIPER-24", Name = "24-inch Wiper Blade", Quantity = 4, LowStockThreshold = 5, UnitCost = 280, SellingPrice = 450 });
 
         await db.SaveChangesAsync();
+    }
+
+    private static async Task BaselineLegacySqliteAsync(AppDbContext db)
+    {
+        if (!db.Database.IsSqlite()) return;
+
+        await db.Database.OpenConnectionAsync();
+        try
+        {
+            var connection = (SqliteConnection)db.Database.GetDbConnection();
+            if (!await TableExists(connection, "Organizations")) return;
+
+            await Execute(connection,
+                """
+                CREATE TABLE IF NOT EXISTS "__EFMigrationsHistory" (
+                    "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
+                    "ProductVersion" TEXT NOT NULL
+                );
+                """);
+            await RecordMigration(connection, "20260917101110_InitialSupabaseSchema");
+
+            if (await ColumnExists(connection, "Organizations", "IsArchived") &&
+                await ColumnExists(connection, "Organizations", "LogoStorageKey"))
+                await RecordMigration(connection, "20261004072525_AddOrganizationManagement");
+
+            if (await TableExists(connection, "CustomerPortalAccesses"))
+                await RecordMigration(connection, "20261005115151_AddCustomerPortalAccess");
+        }
+        finally
+        {
+            await db.Database.CloseConnectionAsync();
+        }
+    }
+
+    private static async Task<bool> TableExists(SqliteConnection connection, string table)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name";
+        command.Parameters.AddWithValue("$name", table);
+        return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
+    }
+
+    private static async Task<bool> ColumnExists(SqliteConnection connection, string table, string column)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"PRAGMA table_info(\"{table}\")";
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+            if (string.Equals(reader.GetString(1), column, StringComparison.OrdinalIgnoreCase)) return true;
+        return false;
+    }
+
+    private static async Task RecordMigration(SqliteConnection connection, string migrationId)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = "INSERT OR IGNORE INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ($id, '8.0.20')";
+        command.Parameters.AddWithValue("$id", migrationId);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task Execute(SqliteConnection connection, string sql)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        await command.ExecuteNonQueryAsync();
     }
 }

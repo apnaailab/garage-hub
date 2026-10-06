@@ -1,9 +1,13 @@
 using System.IdentityModel.Tokens.Jwt;
+using System.Security.Cryptography;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Threading.RateLimiting;
 using GarageHub.Api;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -17,7 +21,15 @@ if (string.IsNullOrWhiteSpace(connection))
 if (connection.Contains("Host=", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddDbContext<AppDbContext>(o => o.UseNpgsql(connection));
 else
-    builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(connection));
+{
+    if (!builder.Environment.IsDevelopment())
+        throw new InvalidOperationException("Production must use a persistent PostgreSQL database.");
+    var sqlite = new SqliteConnectionStringBuilder(connection);
+    if (!Path.IsPathRooted(sqlite.DataSource))
+        sqlite.DataSource = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, sqlite.DataSource));
+    Directory.CreateDirectory(Path.GetDirectoryName(sqlite.DataSource)!);
+    builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(sqlite.ConnectionString));
+}
 
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "garagehub-local-development-key-change-before-production-2026";
 if (!builder.Environment.IsDevelopment() && (jwtKey.Length < 32 || jwtKey.Contains("SET_A_", StringComparison.Ordinal)))
@@ -58,6 +70,15 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJw
     };
 });
 builder.Services.AddAuthorization();
+builder.Services.AddRateLimiter(options => options.AddPolicy("customer-portal-login", context =>
+    RateLimitPartition.GetFixedWindowLimiter(
+        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        })));
 builder.Services.AddSingleton<IMessageDelivery, LocalMessageDelivery>();
 builder.Services.AddHostedService<ReminderWorker>();
 if (string.Equals(builder.Configuration["Storage:Provider"], "Supabase", StringComparison.OrdinalIgnoreCase))
@@ -88,6 +109,7 @@ if (app.Environment.IsDevelopment() || builder.Configuration.GetValue<bool>("Swa
 if (allowedOrigins.Length > 0) app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
+app.UseRateLimiter();
 app.UseStaticFiles();
 
 using (var scope = app.Services.CreateScope())
@@ -113,7 +135,128 @@ app.MapPost("/api/auth/login", async (LoginRequest request, AppDbContext db) =>
     return Results.Ok(CreateLoginResponse(user, user.OrganizationId, signingKey));
 });
 
+app.MapPost("/api/public/customer-portal/login", async (CustomerPortalLoginRequest request, AppDbContext db) =>
+{
+    var trackingId = request.TrackingId.Trim().ToUpperInvariant();
+    var access = await db.CustomerPortalAccesses.SingleOrDefaultAsync(x => x.PublicId == trackingId && x.RevokedAt == null);
+    if (access is null || !await db.Organizations.AnyAsync(x => x.Id == access.OrganizationId && !x.IsArchived))
+        return Results.Unauthorized();
+
+    var phoneValid = !string.IsNullOrWhiteSpace(request.PhoneLastFour) && DigitsOnly(request.PhoneLastFour) == access.PhoneLastFour;
+    if (!phoneValid) return Results.Unauthorized();
+    var snapshot = await db.PortalSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == access.OrganizationId);
+    var job = FindPortalJobFromJson(snapshot?.DataJson, access.JobId, access.CustomerId);
+    if (job is null || PortalAccessExpired(job)) return Results.Unauthorized();
+
+    access.LastAccessedAt = DateTimeOffset.UtcNow;
+    access.UpdatedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { token = CreateCustomerPortalToken(access, signingKey), trackingId = access.PublicId });
+}).RequireRateLimiting("customer-portal-login");
+
+app.MapGet("/api/public/customer-portal", async (HttpRequest request, AppDbContext db) =>
+{
+    var access = await ResolveCustomerPortalAccess(request, db, signingKey);
+    if (access is null) return Results.Unauthorized();
+    var snapshot = await db.PortalSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == access.OrganizationId);
+    var root = ParsePortalRoot(snapshot?.DataJson);
+    var job = FindPortalJob(root, access.JobId, access.CustomerId);
+    if (job is null || PortalAccessExpired(job)) return Results.Unauthorized();
+    var customer = FindPortalItem(root, "customers", access.CustomerId);
+    var organization = await db.Organizations.AsNoTracking().SingleAsync(x => x.Id == access.OrganizationId);
+    return Results.Ok(BuildCustomerPortalView(access, organization, customer, job, root));
+});
+
+app.MapGet("/api/public/customer-portal/photos/{documentId:guid}", async (Guid documentId, HttpRequest request, AppDbContext db, IFileStorage storage, CancellationToken cancellationToken) =>
+{
+    var access = await ResolveCustomerPortalAccess(request, db, signingKey);
+    if (access is null) return Results.Unauthorized();
+    var snapshot = await db.PortalSnapshots.AsNoTracking().SingleOrDefaultAsync(x => x.OrganizationId == access.OrganizationId, cancellationToken);
+    var job = FindPortalJobFromJson(snapshot?.DataJson, access.JobId, access.CustomerId);
+    if (job is null || PortalAccessExpired(job) || !JobContainsPhoto(job, documentId)) return Results.Forbid();
+    var document = await db.Documents.AsNoTracking().SingleOrDefaultAsync(x => x.Id == documentId && x.OrganizationId == access.OrganizationId, cancellationToken);
+    return document is null ? Results.NotFound() : Results.Ok(new { url = await storage.GetDownloadUrlAsync(document.StorageKey, cancellationToken) });
+});
+
+app.MapPost("/api/public/customer-portal/actions", async (CustomerPortalActionRequest request, HttpRequest httpRequest, AppDbContext db) =>
+{
+    var access = await ResolveCustomerPortalAccess(httpRequest, db, signingKey);
+    if (access is null) return Results.Unauthorized();
+    var snapshot = await db.PortalSnapshots.SingleOrDefaultAsync(x => x.OrganizationId == access.OrganizationId);
+    var root = ParsePortalRoot(snapshot?.DataJson);
+    var job = FindPortalJob(root, access.JobId, access.CustomerId);
+    if (snapshot is null || root is null || job is null || PortalAccessExpired(job)) return Results.Unauthorized();
+
+    switch (request.Action)
+    {
+        case "approve-estimate":
+            job["extraWorkApproved"] = true;
+            job["advanceApproved"] = true;
+            break;
+        case "part-decision" when !string.IsNullOrWhiteSpace(request.PartId) && request.Approved.HasValue:
+            var part = (job["parts"] as JsonArray)?.OfType<JsonObject>().SingleOrDefault(x => x["id"]?.GetValue<string>() == request.PartId);
+            if (part is null) return Results.NotFound();
+            part["approved"] = request.Approved.Value;
+            break;
+        case "accept-consent" when !string.IsNullOrWhiteSpace(request.SignerName):
+            job["customerConsent"] = new JsonObject
+            {
+                ["signerName"] = request.SignerName.Trim(),
+                ["acceptedAt"] = DateTimeOffset.UtcNow.ToString("O")
+            };
+            break;
+        default:
+            return Results.BadRequest(new { error = "Unsupported customer action." });
+    }
+
+    snapshot.DataJson = root.ToJsonString();
+    snapshot.Version++;
+    snapshot.UpdatedAt = DateTimeOffset.UtcNow;
+    db.AuditEvents.Add(new AuditEvent
+    {
+        OrganizationId = access.OrganizationId,
+        ActorId = Guid.Empty,
+        Action = $"customer-portal:{request.Action}",
+        EntityType = "job",
+        EntityId = access.JobId,
+        DetailsJson = JsonSerializer.Serialize(new { access.PublicId })
+    });
+    await db.SaveChangesAsync();
+    return Results.NoContent();
+});
+
 var api = app.MapGroup("/api").RequireAuthorization();
+
+api.MapPost("/customer-portal-access", async (CreateCustomerPortalAccessRequest request, ClaimsPrincipal principal, AppDbContext db) =>
+{
+    var phoneDigits = DigitsOnly(request.CustomerPhone);
+    if (phoneDigits.Length < 4 || string.IsNullOrWhiteSpace(request.JobId) || string.IsNullOrWhiteSpace(request.CustomerId))
+        return Results.BadRequest(new { error = "Job, customer and a valid phone number are required." });
+    var organizationId = OrganizationId(principal);
+    var access = await db.CustomerPortalAccesses.SingleOrDefaultAsync(x => x.OrganizationId == organizationId && x.JobId == request.JobId);
+    if (access is null)
+    {
+        access = new CustomerPortalAccess
+        {
+            OrganizationId = organizationId,
+            JobId = request.JobId.Trim(),
+            CustomerId = request.CustomerId.Trim(),
+            PublicId = await CreateUniqueTrackingId(db),
+            PhoneLastFour = phoneDigits[^4..]
+        };
+        db.CustomerPortalAccesses.Add(access);
+    }
+    else
+    {
+        access.CustomerId = request.CustomerId.Trim();
+        access.PhoneLastFour = phoneDigits[^4..];
+        access.RevokedAt = null;
+        access.UpdatedAt = DateTimeOffset.UtcNow;
+    }
+    Audit(db, principal, "issue", "customer-portal-access", access.Id, access.JobId);
+    await db.SaveChangesAsync();
+    return Results.Ok(new { trackingId = access.PublicId });
+}).RequireAuthorization(p => p.RequireRole(AppRoles.Admin, AppRoles.Owner, AppRoles.Manager, AppRoles.Accountant));
 
 api.MapGet("/workflow-state", async (ClaimsPrincipal principal, AppDbContext db) =>
 {
@@ -186,6 +329,8 @@ api.MapPut("/portal-state", async (WorkflowStateRequest request, ClaimsPrincipal
             using var currentDocument = JsonDocument.Parse(snapshot.DataJson);
             return Results.Conflict(new WorkflowStateResponse(snapshot.Version, currentDocument.RootElement.Clone(), snapshot.UpdatedAt, snapshot.UpdatedById));
         }
+        if (WouldErasePortalData(snapshot.DataJson, dataJson))
+            return Results.BadRequest(new { error = "Refusing to replace populated portal data with an empty snapshot." });
         snapshot.Version++;
         snapshot.DataJson = dataJson;
         snapshot.UpdatedById = userId;
@@ -823,6 +968,154 @@ static LoginResponse CreateLoginResponse(UserAccount user, Guid organizationId, 
         expires: DateTime.UtcNow.AddHours(8),
         signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
     return new LoginResponse(new JwtSecurityTokenHandler().WriteToken(token), ToView(user, organizationId));
+}
+static string CreateCustomerPortalToken(CustomerPortalAccess access, SecurityKey signingKey)
+{
+    var token = new JwtSecurityToken(
+        issuer: "GarageHub",
+        audience: "GarageHub.CustomerPortal",
+        claims:
+        [
+            new Claim(JwtRegisteredClaimNames.Sub, access.Id.ToString()),
+            new Claim("customer_portal_access_id", access.Id.ToString())
+        ],
+        expires: DateTime.UtcNow.AddHours(12),
+        signingCredentials: new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256));
+    return new JwtSecurityTokenHandler().WriteToken(token);
+}
+static async Task<CustomerPortalAccess?> ResolveCustomerPortalAccess(HttpRequest request, AppDbContext db, SecurityKey signingKey)
+{
+    var bearer = request.Headers.Authorization.ToString();
+    var token = bearer.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+        ? bearer["Bearer ".Length..].Trim()
+        : string.Empty;
+    if (string.IsNullOrWhiteSpace(token)) return null;
+    try
+    {
+        var principal = new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidIssuer = "GarageHub",
+            ValidateAudience = true,
+            ValidAudience = "GarageHub.CustomerPortal",
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = signingKey,
+            ClockSkew = TimeSpan.FromMinutes(1)
+        }, out _);
+        if (!Guid.TryParse(principal.FindFirstValue("customer_portal_access_id"), out var accessId)) return null;
+        return await db.CustomerPortalAccesses.SingleOrDefaultAsync(x => x.Id == accessId && x.RevokedAt == null && db.Organizations.Any(organization => organization.Id == x.OrganizationId && !organization.IsArchived));
+    }
+    catch
+    {
+        return null;
+    }
+}
+static async Task<string> CreateUniqueTrackingId(AppDbContext db)
+{
+    const string alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+    while (true)
+    {
+        var value = new string(Enumerable.Range(0, 10).Select(_ => alphabet[RandomNumberGenerator.GetInt32(alphabet.Length)]).ToArray());
+        var trackingId = $"GH-{value}";
+        if (!await db.CustomerPortalAccesses.AnyAsync(x => x.PublicId == trackingId)) return trackingId;
+    }
+}
+static string DigitsOnly(string value) => new(value.Where(char.IsDigit).ToArray());
+static bool WouldErasePortalData(string currentJson, string incomingJson)
+{
+    using var current = JsonDocument.Parse(currentJson);
+    using var incoming = JsonDocument.Parse(incomingJson);
+    var collections = new[] { "jobs", "staff", "customers" };
+    var currentHasData = collections.Any(name =>
+        current.RootElement.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array && value.GetArrayLength() > 0);
+    var incomingIsEmpty = collections.All(name =>
+        !incoming.RootElement.TryGetProperty(name, out var value) || value.ValueKind != JsonValueKind.Array || value.GetArrayLength() == 0);
+    return currentHasData && incomingIsEmpty;
+}
+static JsonObject? ParsePortalRoot(string? dataJson)
+{
+    if (string.IsNullOrWhiteSpace(dataJson)) return null;
+    try { return JsonNode.Parse(dataJson) as JsonObject; }
+    catch (JsonException) { return null; }
+}
+static JsonObject? FindPortalJobFromJson(string? dataJson, string jobId, string customerId) =>
+    FindPortalJob(ParsePortalRoot(dataJson), jobId, customerId);
+static JsonObject? FindPortalJob(JsonObject? root, string jobId, string customerId) =>
+    (root?["jobs"] as JsonArray)?.OfType<JsonObject>().SingleOrDefault(job =>
+        job["id"]?.GetValue<string>() == jobId && job["customerId"]?.GetValue<string>() == customerId);
+static JsonObject? FindPortalItem(JsonObject? root, string collection, string id) =>
+    (root?[collection] as JsonArray)?.OfType<JsonObject>().SingleOrDefault(item => item["id"]?.GetValue<string>() == id);
+static bool PortalAccessExpired(JsonObject job)
+{
+    if (job["currentStage"]?.GetValue<string>() != "delivered") return false;
+    var deliveredAt = (job["stageHistory"] as JsonArray)?.OfType<JsonObject>()
+        .Where(entry => entry["stage"]?.GetValue<string>() == "delivered")
+        .Select(entry => DateTimeOffset.TryParse(entry["at"]?.GetValue<string>(), out var at) ? at : (DateTimeOffset?)null)
+        .Where(at => at.HasValue)
+        .Select(at => at!.Value)
+        .OrderByDescending(at => at)
+        .FirstOrDefault();
+    if (deliveredAt == default && DateTimeOffset.TryParse(job["createdAt"]?.GetValue<string>(), out var createdAt)) deliveredAt = createdAt;
+    return deliveredAt.HasValue && deliveredAt.Value.AddDays(30) < DateTimeOffset.UtcNow;
+}
+static bool JobContainsPhoto(JsonObject job, Guid documentId)
+{
+    var reference = $"document:{documentId}";
+    return (job["photos"] as JsonArray)?.OfType<JsonObject>().Any(photo => photo["url"]?.GetValue<string>() == reference) == true;
+}
+static JsonObject BuildCustomerPortalView(CustomerPortalAccess access, Organization organization, JsonObject? customer, JsonObject job, JsonObject? root)
+{
+    var safeJob = new JsonObject();
+    var allowedJobFields = new[]
+    {
+        "id", "vehicleNo", "make", "model", "year", "color", "serviceIds", "serviceStatus", "currentStage",
+        "stageHistory", "estimatedDelivery", "photos", "parts", "createdAt", "customerConcerns", "pendingWork",
+        "advanceApproved", "extraWorkApproved", "paid", "paymentMode", "gatePassIssued", "pickupDrop",
+        "insuranceClaim", "notifications", "customerConsent"
+    };
+    foreach (var field in allowedJobFields)
+        if (job[field] is JsonNode value) safeJob[field] = value.DeepClone();
+    if (safeJob["notifications"] is JsonArray notifications)
+    {
+        var customerNotifications = notifications.OfType<JsonObject>()
+            .Where(notification => notification["to"]?.GetValue<string>() == "customer")
+            .Select(notification => notification.DeepClone())
+            .ToArray();
+        safeJob["notifications"] = new JsonArray(customerNotifications);
+    }
+    var assignedStaffId = job["assignedStaffId"]?.GetValue<string>();
+    var assignedStaff = string.IsNullOrWhiteSpace(assignedStaffId) ? null : FindPortalItem(root, "staff", assignedStaffId);
+    return new JsonObject
+    {
+        ["trackingId"] = access.PublicId,
+        ["garage"] = new JsonObject
+        {
+            ["name"] = organization.Name,
+            ["logoUrl"] = OrganizationLogoUrl(organization.Id, organization.LogoStorageKey, organization.UpdatedAt),
+            ["paymentInstructions"] = "Please complete payment directly with the workshop. The workshop team will confirm receipt in this portal."
+        },
+        ["customer"] = new JsonObject { ["name"] = customer?["name"]?.GetValue<string>() ?? "Customer" },
+        ["assignedStaff"] = assignedStaff is null ? null : new JsonObject
+        {
+            ["name"] = assignedStaff["name"]?.GetValue<string>(),
+            ["role"] = assignedStaff["role"]?.GetValue<string>()
+        },
+        ["job"] = safeJob,
+        ["expiresAt"] = CustomerPortalExpiry(job)?.ToString("O")
+    };
+}
+static DateTimeOffset? CustomerPortalExpiry(JsonObject job)
+{
+    if (job["currentStage"]?.GetValue<string>() != "delivered") return null;
+    var deliveredAt = (job["stageHistory"] as JsonArray)?.OfType<JsonObject>()
+        .Where(entry => entry["stage"]?.GetValue<string>() == "delivered")
+        .Select(entry => DateTimeOffset.TryParse(entry["at"]?.GetValue<string>(), out var at) ? at : (DateTimeOffset?)null)
+        .Where(at => at.HasValue)
+        .Select(at => at!.Value)
+        .OrderByDescending(at => at)
+        .FirstOrDefault();
+    return deliveredAt.HasValue ? deliveredAt.Value.AddDays(30) : null;
 }
 static string GarageSlug(string name)
 {

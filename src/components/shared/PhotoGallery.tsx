@@ -15,7 +15,7 @@ const TAG_META: Record<PhotoTag, { label: string; tone: Parameters<typeof Badge>
   damage: { label: 'Damage', tone: 'red' },
 };
 
-export function PhotoGallery({ photos }: { photos: Photo[] }) {
+export function PhotoGallery({ photos, resolveUrl = documentsApi.resolveUrl }: { photos: Photo[]; resolveUrl?: (reference: string) => Promise<string> }) {
   const [active, setActive] = useState<Photo | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
   const [failed, setFailed] = useState<Set<string>>(new Set());
@@ -24,7 +24,7 @@ export function PhotoGallery({ photos }: { photos: Photo[] }) {
     let current = true;
     Promise.all(photos.map(async (photo) => {
       try {
-        return { id: photo.id, url: await documentsApi.resolveUrl(photo.url) };
+        return { id: photo.id, url: await resolveUrl(photo.url) };
       } catch {
         return { id: photo.id, url: null };
       }
@@ -40,7 +40,7 @@ export function PhotoGallery({ photos }: { photos: Photo[] }) {
       setFailed(failedIds);
     });
     return () => { current = false; };
-  }, [photos]);
+  }, [photos, resolveUrl]);
 
   if (photos.length === 0) {
     return (

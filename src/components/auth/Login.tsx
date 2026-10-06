@@ -44,6 +44,9 @@ export function Login() {
             <LockKeyhole className="h-4 w-4" /> {loading ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
+        <button className="mt-5 w-full text-center text-sm font-semibold text-brand-600 hover:text-brand-700" onClick={() => { window.location.href = '/track'; }}>
+          Track your vehicle without an account
+        </button>
       </section>
     </main>
   );

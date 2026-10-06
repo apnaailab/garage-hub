@@ -51,6 +51,7 @@ interface GarageState extends PortalData {
 
   // --- Job actions ---
   addJob: (job: JobCard) => void;
+  setJobTrackingId: (jobId: string, trackingId: string) => void;
   addCustomer: (customer: Customer) => void;
   addStaff: (staff: Staff) => void;
   syncStaffAccount: (id: string, name: string, role: StaffRole | null) => void;
@@ -152,6 +153,11 @@ export const useStore = create<GarageState>()(
       setSearch: (search) => set({ search }),
 
       addJob: (job) => set((s) => ({ jobs: [job, ...s.jobs] })),
+
+      setJobTrackingId: (jobId, trackingId) =>
+        set((state) => ({
+          jobs: state.jobs.map((job) => job.id === jobId ? { ...job, trackingId } : job),
+        })),
 
       addCustomer: (customer) => set((s) => ({ customers: [...s.customers, customer] })),
 

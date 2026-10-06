@@ -31,6 +31,7 @@ import { cn, formatCurrency, formatDate, formatDateTime } from '@/lib/utils';
 import { serviceById, nextStage, stageLabel, serviceStatusOf, SERVICE_STATUS_META, PENDING_WORK_META } from '@/lib/workflows';
 import { jobTotal, servicesTotal, approvedPartsTotal } from '@/lib/jobUtils';
 import { uploadImage } from '@/lib/images';
+import { customerPortalApi } from '@/lib/api';
 
 interface Props {
   jobId: string | null;
@@ -62,9 +63,12 @@ export function JobDetailDrawer({ jobId, onClose, onPrint }: Props) {
 }
 
 function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => void; onPrint?: (id: string) => void }) {
-  const canReviewParts = useAuthStore((s) => s.user?.role === 'accountant');
+  const userRole = useAuthStore((s) => s.user?.role);
+  const canReviewParts = userRole === 'accountant';
+  const canManagePortal = userRole === 'admin' || userRole === 'owner' || userRole === 'manager' || userRole === 'accountant';
   const staff = useStore((s) => s.staff);
   const customers = useStore((s) => s.customers);
+  const setJobTrackingId = useStore((s) => s.setJobTrackingId);
   const advanceStage = useStore((s) => s.advanceStage);
   const assignStaff = useStore((s) => s.assignStaff);
   const reviewPart = useStore((s) => s.reviewPart);
@@ -74,6 +78,8 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
 
   const [note, setNote] = useState('');
   const [selectedStage, setSelectedStage] = useState<StageId>(job.currentStage);
+  const [portalError, setPortalError] = useState('');
+  const [enablingPortal, setEnablingPortal] = useState(false);
   const assignee = staffById(staff, job.assignedStaffId);
   const customer = customerById(customers, job.customerId);
   const nxt = nextStage(job.currentStage);
@@ -86,6 +92,27 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
       caption: `${stageLabel(job.currentStage)} snapshot`,
       uploadedBy: assignee?.name ?? 'Staff',
     });
+  };
+
+  const enablePortal = async () => {
+    if (!customer?.phone) return;
+    setEnablingPortal(true);
+    setPortalError('');
+    try {
+      const credential = await customerPortalApi.issue(job.id, job.customerId, customer.phone);
+      if (job.trackingId !== credential.trackingId) setJobTrackingId(job.id, credential.trackingId);
+    } catch (error) {
+      setPortalError(error instanceof Error ? error.message : 'Unable to enable customer tracking.');
+    } finally {
+      setEnablingPortal(false);
+    }
+  };
+
+  const sharePortalLink = () => {
+    if (!job.trackingId || !customer) return;
+    const link = `${window.location.origin}/track`;
+    const message = `Track your ${job.make} ${job.model} service at ${link}\nTracking ID: ${job.trackingId}\nUse the last 4 digits of your mobile number to open it.`;
+    window.open(`https://wa.me/${customer.phone.replace(/\D/g, '')}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -150,7 +177,7 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
 
         {/* customer */}
         <Section title="Customer">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-semibold">{customer?.name}</p>
               <p className="flex items-center gap-1 text-xs text-ink-400">
@@ -162,7 +189,23 @@ function DrawerBody({ job, onClose, onPrint }: { job: JobCard; onClose: () => vo
                 </p>
               )}
             </div>
+            {job.trackingId && <span className="shrink-0 font-mono text-xs font-bold text-ink-500">{job.trackingId}</span>}
           </div>
+          {canManagePortal && customer?.phone && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-ink-100 pt-3 dark:border-ink-800">
+              {!job.trackingId && (
+                <Button size="sm" variant="secondary" onClick={enablePortal} disabled={enablingPortal}>
+                  {enablingPortal ? 'Enabling…' : 'Enable tracking'}
+                </Button>
+              )}
+              {job.trackingId && (
+                <Button size="sm" onClick={sharePortalLink}>
+                  <MessageCircle className="h-4 w-4" /> Share on WhatsApp
+                </Button>
+              )}
+              {portalError && <p className="w-full text-xs font-medium text-rose-600">{portalError}</p>}
+            </div>
+          )}
         </Section>
 
         {/* assignment */}

@@ -143,6 +143,54 @@ namespace GarageHub.Api.Migrations
                     b.ToTable("Consents");
                 });
 
+            modelBuilder.Entity("GarageHub.Api.CustomerPortalAccess", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("CustomerId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("JobId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("LastAccessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PhoneLastFour")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTimeOffset?>("RevokedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("OrganizationId", "JobId")
+                        .IsUnique();
+
+                    b.ToTable("CustomerPortalAccesses");
+                });
+
             modelBuilder.Entity("GarageHub.Api.CustomerProfile", b =>
                 {
                     b.Property<Guid>("Id")
@@ -847,6 +895,15 @@ namespace GarageHub.Api.Migrations
                 });
 
             modelBuilder.Entity("GarageHub.Api.Consent", b =>
+                {
+                    b.HasOne("GarageHub.Api.Organization", null)
+                        .WithMany()
+                        .HasForeignKey("OrganizationId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("GarageHub.Api.CustomerPortalAccess", b =>
                 {
                     b.HasOne("GarageHub.Api.Organization", null)
                         .WithMany()

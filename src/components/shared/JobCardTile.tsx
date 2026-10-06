@@ -157,7 +157,9 @@ function QuickMenu({
   job: JobCard;
 }) {
   const shareText = encodeURIComponent(
-    `GarageHub update for ${job.vehicleNo} (${job.make} ${job.model}): now at "${stageLabel(job.currentStage)}" stage. Job ${job.id}.`,
+    job.trackingId
+      ? `Track your ${job.make} ${job.model} service at ${window.location.origin}/track\nTracking ID: ${job.trackingId}\nUse the last 4 digits of your mobile number to open it.`
+      : `GarageHub update for ${job.vehicleNo} (${job.make} ${job.model}): now at "${stageLabel(job.currentStage)}" stage. Job ${job.id}.`,
   );
   const wa = `https://wa.me/${phone.replace(/[^\d]/g, '')}?text=${shareText}`;
 

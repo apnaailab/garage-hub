@@ -130,6 +130,40 @@ export const documentsApi = {
   },
 };
 
+export interface CustomerPortalCredential {
+  trackingId: string;
+}
+
+export interface CustomerPortalSession {
+  token: string;
+  trackingId: string;
+}
+
+async function publicApi<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
+  const headers = new Headers(init.headers);
+  if (init.body) headers.set('Content-Type', 'application/json');
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const response = await fetch(`${API_URL}${path}`, { cache: 'no-store', ...init, headers });
+  if (!response.ok) throw new Error(response.status === 401 ? 'Tracking access is invalid or has expired.' : await response.text());
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
+export const customerPortalApi = {
+  issue: (jobId: string, customerId: string, customerPhone: string) =>
+    api<CustomerPortalCredential>('/customer-portal-access', { method: 'POST', body: JSON.stringify({ jobId, customerId, customerPhone }) }),
+  login: (trackingId: string, input: { phoneLastFour: string }) =>
+    publicApi<CustomerPortalSession>('/public/customer-portal/login', { method: 'POST', body: JSON.stringify({ trackingId, ...input }) }),
+  get: <T>(token: string) => publicApi<T>('/public/customer-portal', {}, token),
+  action: (token: string, action: { action: string; partId?: string; approved?: boolean; signerName?: string }) =>
+    publicApi<void>('/public/customer-portal/actions', { method: 'POST', body: JSON.stringify(action) }, token),
+  async photoUrl(documentId: string, token: string) {
+    const result = await publicApi<{ url: string }>(`/public/customer-portal/photos/${documentId}`, {}, token);
+    return result.url.startsWith('/') ? `${new URL(API_URL).origin}${result.url}` : result.url;
+  },
+  assetUrl: (path: string) => path.startsWith('/') ? `${new URL(API_URL).origin}${path}` : path,
+};
+
 function stateApi(basePath: string) {
   return {
   async get<T>(): Promise<WorkflowEnvelope<T> | null> {

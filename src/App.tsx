@@ -17,11 +17,13 @@ import { TaskView } from '@/portals/mechanic/TaskView';
 import { Billing, PartsApprovals } from '@/portals/accountant/Billing';
 import { Tracker } from '@/portals/customer/Tracker';
 import { Approval } from '@/portals/customer/Approval';
+import { PublicTracker } from '@/portals/customer/PublicTracker';
 import { OperationsCenter } from '@/portals/shared/OperationsCenter';
 import { PortalSyncBridge } from '@/components/shared/PortalSyncBridge';
 import type { Role } from '@/types';
 
 export default function App() {
+  const isTrackingPortal = /^\/track\/?$/.test(window.location.pathname);
   const role = useStore((s) => s.role);
   const setRole = useStore((s) => s.setRole);
   const page = useStore((s) => s.page);
@@ -65,6 +67,7 @@ export default function App() {
     return <Tracker />;
   };
 
+  if (isTrackingPortal) return <PublicTracker />;
   if (!user) return <Login />;
 
   return (

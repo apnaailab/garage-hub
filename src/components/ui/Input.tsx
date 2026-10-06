@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
+import { forwardRef, type InputHTMLAttributes, type LabelHTMLAttributes, type TextareaHTMLAttributes, type SelectHTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 const base =
@@ -28,9 +28,9 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
 );
 Select.displayName = 'Select';
 
-export function Label({ children, className }: { children: React.ReactNode; className?: string }) {
+export function Label({ children, className, ...props }: LabelHTMLAttributes<HTMLLabelElement>) {
   return (
-    <label className={cn('mb-1.5 block text-xs font-semibold text-ink-600 dark:text-ink-400', className)}>
+    <label className={cn('mb-1.5 block text-xs font-semibold text-ink-600 dark:text-ink-400', className)} {...props}>
       {children}
     </label>
   );
